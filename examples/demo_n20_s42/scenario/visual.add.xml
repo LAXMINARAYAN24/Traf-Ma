@@ -1,0 +1,14 @@
+<additional>
+  <poly id="rsu_zone_N" type="rsu_zone" color="0,200,255,90" fill="1" layer="5" shape="296.00,457.20 296.00,307.20 300.80,307.20 300.80,457.20"/>
+  <poly id="rsu_N" type="rsu" color="0,90,255" fill="1" layer="10" shape="287.90,304.70 292.90,304.70 292.90,309.70 287.90,309.70"/>
+  <poi id="rsu_N_label" type="rsu" color="0,90,255" layer="11" x="290.40" y="307.20"/>
+  <poly id="rsu_zone_E" type="rsu_zone" color="0,200,255,90" fill="1" layer="5" shape="457.20,304.00 307.20,304.00 307.20,299.20 457.20,299.20"/>
+  <poly id="rsu_E" type="rsu" color="0,90,255" fill="1" layer="10" shape="304.70,307.10 309.70,307.10 309.70,312.10 304.70,312.10"/>
+  <poi id="rsu_E_label" type="rsu" color="0,90,255" layer="11" x="307.20" y="309.60"/>
+  <poly id="rsu_zone_S" type="rsu_zone" color="0,200,255,90" fill="1" layer="5" shape="304.00,142.80 304.00,292.80 299.20,292.80 299.20,142.80"/>
+  <poly id="rsu_S" type="rsu" color="0,90,255" fill="1" layer="10" shape="307.10,290.30 312.10,290.30 312.10,295.30 307.10,295.30"/>
+  <poi id="rsu_S_label" type="rsu" color="0,90,255" layer="11" x="309.60" y="292.80"/>
+  <poly id="rsu_zone_W" type="rsu_zone" color="0,200,255,90" fill="1" layer="5" shape="142.80,296.00 292.80,296.00 292.80,300.80 142.80,300.80"/>
+  <poly id="rsu_W" type="rsu" color="0,90,255" fill="1" layer="10" shape="290.30,287.90 295.30,287.90 295.30,292.90 290.30,292.90"/>
+  <poi id="rsu_W_label" type="rsu" color="0,90,255" layer="11" x="292.80" y="290.40"/>
+</additional>

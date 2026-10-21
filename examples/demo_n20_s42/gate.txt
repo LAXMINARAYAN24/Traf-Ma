@@ -1,0 +1,23 @@
+Phase 1 gate
+  [PASS] Run finished or reported a defined timeout; TraCI closed cleanly
+         status=completed, closed_cleanly=True
+  [PASS] Four RSUs (one per road) exist throughout
+         all four have a record at every report step
+  [PASS] Vehicle registry matches departed/active/arrived events
+         scheduled 20, departed 20, arrived 20, active 0, pending 0
+  [PASS] Ownership persists to arrival; out-of-coverage observations masked
+         20 vehicles checked
+  [PASS] Identical seed/config/simulator reproduce the non-wall-clock trace
+         trace e2c4145faae5 vs e2c4145faae5; routes 1959c181e167 vs 1959c181e167
+  [PASS] Every vehicle message reaches the coordinator via its parent RSU; no duplicate contribution
+         sent 1743; coordinator-accepted 1743; fates {'coordinator_accepted': 1743}; coordinator rejects {'bad_provenance': 0, 'duplicate': 0, 'invalid': 0, 'out_of_order': 0, 'stale': 0}
+  [PASS] Checks for locality, empty regions, missing values, stale messages, malformed config pass
+         102 passed in 37.52s
+  [PASS] Manifest, per-agent logs, message trace and global snapshot saved
+         all present
+  [PASS] No unexplained collisions/teleports/SUMO errors
+         collisions 0, teleports 0, error log bytes 0
+  [INFO] All four approaches used
+         origins used: ['E', 'N', 'S', 'W'] (checked only for balanced N>=40)
+
+RESULT: PASS

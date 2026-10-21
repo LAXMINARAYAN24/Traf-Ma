@@ -1,0 +1,15 @@
+# P2.1 data generation: scenarios x seeds. Splits are by whole run (disjoint seeds).
+dataset_id: phase2_v1
+output_dir: data
+jobs: 2
+base:
+  run: {duration_s: 900}
+scenarios:
+  - {name: free,       vehicles: 60,  profile: balanced}
+  - {name: moderate,   vehicles: 220, profile: balanced}
+  - {name: heavy,      vehicles: 380, profile: balanced}
+  - {name: asymmetric, vehicles: 260, profile: asymmetric}
+splits:
+  train: [1, 2, 3]
+  val:   [4]
+  test:  [5, 6]

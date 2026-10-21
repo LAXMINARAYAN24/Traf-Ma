@@ -1,0 +1,16 @@
+[project]
+name = "trafma"
+version = "0.1.0"
+description = "TRAF-MA SUMO simulation layer: 4-arm intersection, vehicle agents, 4 RSUs, edge coordinator"
+requires-python = ">=3.9"
+dependencies = ["eclipse-sumo>=1.20", "traci>=1.20", "sumolib>=1.20", "pyyaml>=6"]
+
+[project.optional-dependencies]
+plots = ["matplotlib>=3.7"]
+dev = ["pytest>=7", "matplotlib>=3.7"]
+
+[tool.setuptools]
+packages = ["trafma"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

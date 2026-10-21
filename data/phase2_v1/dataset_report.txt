@@ -1,0 +1,43 @@
+=== dataset report ===
+congestion rule : queue_zone/zone_len < 0.1 -> 0 free; < 0.35 -> 1 moderate; else 2 heavy
+horizon 30.0 s, history 10 steps, trainable if >= 16 windows
+
+run                      split    N  dep  arr unf coll rsuLogs
+asymmetric_s1            train  260  258  216  42    0 ok
+asymmetric_s2            train  260  260  215  45    0 ok
+asymmetric_s3            train  260  260  214  46    0 ok
+asymmetric_s4            val    260  260  203  57    0 ok
+asymmetric_s5            test   260  260  207  53    0 ok
+asymmetric_s6            test   260  260  205  55    0 ok
+free_s1                  train   60   60   60   0    0 ok
+free_s2                  train   60   60   58   2    0 ok
+free_s3                  train   60   60   60   0    0 ok
+free_s4                  val     60   60   60   0    0 ok
+free_s5                  test    60   60   60   0    0 ok
+free_s6                  test    60   60   60   0    0 ok
+heavy_s1                 train  380  380  297  83    0 ok
+heavy_s2                 train  380  380  296  84    0 ok
+heavy_s3                 train  380  380  306  74    0 ok
+heavy_s4                 val    380  380  306  74    0 ok
+heavy_s5                 test   380  380  297  83    0 ok
+heavy_s6                 test   380  380  298  82    0 ok
+moderate_s1              train  220  220  220   0    0 ok
+moderate_s2              train  220  220  219   1    0 ok
+moderate_s3              train  220  220  217   3    0 ok
+moderate_s4              val    220  220  219   1    0 ok
+moderate_s5              test   220  220  220   0    0 ok
+moderate_s6              test   220  220  220   0    0 ok
+
+split/client-type   clients trainable windows   label hist [free, moderate, heavy]
+test/rsu                 32        32   27552   [16223, 4761, 6568]
+test/vehicle           1840      1765  231923   [83174, 29687, 119062]
+train/rsu                48        48   41328   [24258, 7885, 9185]
+train/vehicle          2758      2674  314378   [117302, 43740, 153336]
+val/rsu                  16        16   13776   [8061, 2456, 3259]
+val/vehicle             920       885  110744   [40631, 14459, 55654]
+
+measured non-IID skew (train, trainable clients; TV distance of client label dist. to pooled):
+  rsu      n=48 mean TV 0.2867, max 0.4363, pooled [24258, 7885, 9185]
+  vehicle  n=2674 mean TV 0.2888, max 0.8151, pooled [116309, 43669, 153287]
+
+integrity: split overlap=none; window rule violations=0; evaluator keys in agent logs=none; complete RSU logs=True; collisions=0, teleports=0

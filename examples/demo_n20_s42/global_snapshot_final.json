@@ -1,0 +1,197 @@
+{
+ "approaches": {
+  "E": {
+   "contributions": {
+    "direct_accepted": 600,
+    "rejected": {
+     "bad_provenance": 0,
+     "duplicate": 0,
+     "invalid": 0,
+     "out_of_order": 0,
+     "stale": 0
+    },
+    "relayed_accepted": 578
+   },
+   "direct": {
+    "age_s": 0.0,
+    "observation": {
+     "approach": "E",
+     "coverage_m": 150.0,
+     "density_veh_per_km": 0.0,
+     "halting_count": 0,
+     "max_waiting_time_s": null,
+     "mean_speed_mps": null,
+     "mean_waiting_time_s": null,
+     "outbound_count": 0,
+     "queue_length_m": 0.0,
+     "queue_vehicle_count": 0,
+     "signal_phase_index": 11,
+     "signal_remaining_s": 30.0,
+     "signal_state": "r",
+     "unavailable": [
+      "max_waiting_time_s",
+      "mean_speed_mps",
+      "mean_waiting_time_s"
+     ],
+     "vehicle_count": 0,
+     "zone_m": 150.0
+    },
+    "stale": false
+   },
+   "relayed_child": {
+    "halted_reporters": 0,
+    "incoming_local_reporters": 0,
+    "max_reported_waiting_s": null,
+    "mean_reported_speed_mps": null,
+    "post_junction_reporters": 0,
+    "reporting_vehicles": 0
+   },
+   "status": "ok"
+  },
+  "N": {
+   "contributions": {
+    "direct_accepted": 600,
+    "rejected": {
+     "bad_provenance": 0,
+     "duplicate": 0,
+     "invalid": 0,
+     "out_of_order": 0,
+     "stale": 0
+    },
+    "relayed_accepted": 555
+   },
+   "direct": {
+    "age_s": 0.0,
+    "observation": {
+     "approach": "N",
+     "coverage_m": 150.0,
+     "density_veh_per_km": 0.0,
+     "halting_count": 0,
+     "max_waiting_time_s": null,
+     "mean_speed_mps": null,
+     "mean_waiting_time_s": null,
+     "outbound_count": 0,
+     "queue_length_m": 0.0,
+     "queue_vehicle_count": 0,
+     "signal_phase_index": 11,
+     "signal_remaining_s": 0.0,
+     "signal_state": "r",
+     "unavailable": [
+      "max_waiting_time_s",
+      "mean_speed_mps",
+      "mean_waiting_time_s"
+     ],
+     "vehicle_count": 0,
+     "zone_m": 150.0
+    },
+    "stale": false
+   },
+   "relayed_child": {
+    "halted_reporters": 0,
+    "incoming_local_reporters": 0,
+    "max_reported_waiting_s": null,
+    "mean_reported_speed_mps": null,
+    "post_junction_reporters": 0,
+    "reporting_vehicles": 0
+   },
+   "status": "ok"
+  },
+  "S": {
+   "contributions": {
+    "direct_accepted": 600,
+    "rejected": {
+     "bad_provenance": 0,
+     "duplicate": 0,
+     "invalid": 0,
+     "out_of_order": 0,
+     "stale": 0
+    },
+    "relayed_accepted": 413
+   },
+   "direct": {
+    "age_s": 0.0,
+    "observation": {
+     "approach": "S",
+     "coverage_m": 150.0,
+     "density_veh_per_km": 0.0,
+     "halting_count": 0,
+     "max_waiting_time_s": null,
+     "mean_speed_mps": null,
+     "mean_waiting_time_s": null,
+     "outbound_count": 0,
+     "queue_length_m": 0.0,
+     "queue_vehicle_count": 0,
+     "signal_phase_index": 11,
+     "signal_remaining_s": 60.0,
+     "signal_state": "r",
+     "unavailable": [
+      "max_waiting_time_s",
+      "mean_speed_mps",
+      "mean_waiting_time_s"
+     ],
+     "vehicle_count": 0,
+     "zone_m": 150.0
+    },
+    "stale": false
+   },
+   "relayed_child": {
+    "halted_reporters": 0,
+    "incoming_local_reporters": 0,
+    "max_reported_waiting_s": null,
+    "mean_reported_speed_mps": null,
+    "post_junction_reporters": 0,
+    "reporting_vehicles": 0
+   },
+   "status": "ok"
+  },
+  "W": {
+   "contributions": {
+    "direct_accepted": 600,
+    "rejected": {
+     "bad_provenance": 0,
+     "duplicate": 0,
+     "invalid": 0,
+     "out_of_order": 0,
+     "stale": 0
+    },
+    "relayed_accepted": 197
+   },
+   "direct": {
+    "age_s": 0.0,
+    "observation": {
+     "approach": "W",
+     "coverage_m": 150.0,
+     "density_veh_per_km": 0.0,
+     "halting_count": 0,
+     "max_waiting_time_s": null,
+     "mean_speed_mps": null,
+     "mean_waiting_time_s": null,
+     "outbound_count": 0,
+     "queue_length_m": 0.0,
+     "queue_vehicle_count": 0,
+     "signal_phase_index": 11,
+     "signal_remaining_s": 90.0,
+     "signal_state": "r",
+     "unavailable": [
+      "max_waiting_time_s",
+      "mean_speed_mps",
+      "mean_waiting_time_s"
+     ],
+     "vehicle_count": 0,
+     "zone_m": 150.0
+    },
+    "stale": false
+   },
+   "relayed_child": {
+    "halted_reporters": 0,
+    "incoming_local_reporters": 0,
+    "max_reported_waiting_s": null,
+    "mean_reported_speed_mps": null,
+    "post_junction_reporters": 0,
+    "reporting_vehicles": 0
+   },
+   "status": "ok"
+  }
+ },
+ "time": 600.0
+}

@@ -1,0 +1,262 @@
+{
+ "approaches": {
+  "E": {
+   "dir_xy": [
+    -1.0,
+    0.0
+   ],
+   "in_edge": "E_in",
+   "in_lane": "E_in_0",
+   "in_len": 292.8,
+   "link_indices": [
+    3,
+    4,
+    5
+   ],
+   "name": "E",
+   "out_edge": "E_out",
+   "out_lane": "E_out_0",
+   "out_len": 292.8,
+   "rsu_xy": [
+    307.2,
+    309.6
+   ],
+   "start_xy": [
+    600.0,
+    301.6
+   ],
+   "stop_xy": [
+    307.2,
+    301.6
+   ],
+   "zone_polygon": [
+    [
+     457.2,
+     304.0
+    ],
+    [
+     307.2,
+     304.0
+    ],
+    [
+     307.2,
+     299.20000000000005
+    ],
+    [
+     457.2,
+     299.20000000000005
+    ]
+   ]
+  },
+  "N": {
+   "dir_xy": [
+    0.0,
+    -1.0
+   ],
+   "in_edge": "N_in",
+   "in_lane": "N_in_0",
+   "in_len": 292.8,
+   "link_indices": [
+    0,
+    1,
+    2
+   ],
+   "name": "N",
+   "out_edge": "N_out",
+   "out_lane": "N_out_0",
+   "out_len": 292.8,
+   "rsu_xy": [
+    290.4,
+    307.2
+   ],
+   "start_xy": [
+    298.4,
+    600.0
+   ],
+   "stop_xy": [
+    298.4,
+    307.2
+   ],
+   "zone_polygon": [
+    [
+     296.0,
+     457.2
+    ],
+    [
+     296.0,
+     307.2
+    ],
+    [
+     300.79999999999995,
+     307.2
+    ],
+    [
+     300.79999999999995,
+     457.2
+    ]
+   ]
+  },
+  "S": {
+   "dir_xy": [
+    0.0,
+    1.0
+   ],
+   "in_edge": "S_in",
+   "in_lane": "S_in_0",
+   "in_len": 292.8,
+   "link_indices": [
+    6,
+    7,
+    8
+   ],
+   "name": "S",
+   "out_edge": "S_out",
+   "out_lane": "S_out_0",
+   "out_len": 292.8,
+   "rsu_xy": [
+    309.6,
+    292.8
+   ],
+   "start_xy": [
+    301.6,
+    0.0
+   ],
+   "stop_xy": [
+    301.6,
+    292.8
+   ],
+   "zone_polygon": [
+    [
+     304.0,
+     142.8
+    ],
+    [
+     304.0,
+     292.8
+    ],
+    [
+     299.20000000000005,
+     292.8
+    ],
+    [
+     299.20000000000005,
+     142.8
+    ]
+   ]
+  },
+  "W": {
+   "dir_xy": [
+    1.0,
+    0.0
+   ],
+   "in_edge": "W_in",
+   "in_lane": "W_in_0",
+   "in_len": 292.8,
+   "link_indices": [
+    9,
+    10,
+    11
+   ],
+   "name": "W",
+   "out_edge": "W_out",
+   "out_lane": "W_out_0",
+   "out_len": 292.8,
+   "rsu_xy": [
+    292.8,
+    290.4
+   ],
+   "start_xy": [
+    0.0,
+    298.4
+   ],
+   "stop_xy": [
+    292.8,
+    298.4
+   ],
+   "zone_polygon": [
+    [
+     142.8,
+     296.0
+    ],
+    [
+     292.8,
+     296.0
+    ],
+    [
+     292.8,
+     300.79999999999995
+    ],
+    [
+     142.8,
+     300.79999999999995
+    ]
+   ]
+  }
+ },
+ "arm_length_m": 300.0,
+ "cycle_s": 120.0,
+ "n_links": 12,
+ "signal_phases": [
+  {
+   "duration": 25.0,
+   "label": "N_green",
+   "state": "GGGrrrrrrrrr"
+  },
+  {
+   "duration": 3.0,
+   "label": "N_yellow",
+   "state": "yyyrrrrrrrrr"
+  },
+  {
+   "duration": 2.0,
+   "label": "N_allred",
+   "state": "rrrrrrrrrrrr"
+  },
+  {
+   "duration": 25.0,
+   "label": "E_green",
+   "state": "rrrGGGrrrrrr"
+  },
+  {
+   "duration": 3.0,
+   "label": "E_yellow",
+   "state": "rrryyyrrrrrr"
+  },
+  {
+   "duration": 2.0,
+   "label": "E_allred",
+   "state": "rrrrrrrrrrrr"
+  },
+  {
+   "duration": 25.0,
+   "label": "S_green",
+   "state": "rrrrrrGGGrrr"
+  },
+  {
+   "duration": 3.0,
+   "label": "S_yellow",
+   "state": "rrrrrryyyrrr"
+  },
+  {
+   "duration": 2.0,
+   "label": "S_allred",
+   "state": "rrrrrrrrrrrr"
+  },
+  {
+   "duration": 25.0,
+   "label": "W_green",
+   "state": "rrrrrrrrrGGG"
+  },
+  {
+   "duration": 3.0,
+   "label": "W_yellow",
+   "state": "rrrrrrrrryyy"
+  },
+  {
+   "duration": 2.0,
+   "label": "W_allred",
+   "state": "rrrrrrrrrrrr"
+  }
+ ],
+ "tls_id": "C"
+}
