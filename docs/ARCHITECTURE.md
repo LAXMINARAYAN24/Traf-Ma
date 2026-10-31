@@ -1,5 +1,7 @@
 # System architecture
 
+> This document is the intended design, not a description of current code. For as-built names, message contracts, sensor scope and labels, use executable code/tests and generated artifacts, then [ARCHITECTURE_AS_BUILT.md](ARCHITECTURE_AS_BUILT.md). Current roadside agent IDs are `rsu_N/E/S/W`, not `cam_north/...`; the common 22-value feature schema and RSU learning-client role are proposals until verified and implemented.
+
 ## Components and boundaries
 
 ```mermaid

@@ -60,25 +60,27 @@ Dataset folders: `data/<dataset_id>/dataset_manifest.json` and `dataset_report.t
 
 | Dataset | Config | Runs | Notes |
 |---|---|---|---|
-| `phase2_v1` | `configs/data.yaml` | 24 (4 scenarios x seeds 1-6) | original; logs have schema 1.0 (no mean accel / distance) |
-| `phase2_v2_dev` | `configs/data_v2_dev.yaml` | 48 (8 scenarios x 6 seeds) | development size, estimated 1.3 GB |
-| `phase2_v2` | `configs/data_v2.yaml` | 160 (8 scenarios x 20 seeds) | adds `light_moderate` (N=120), `moderate_heavy` (N=300), `asymmetric_ew`, `single_arm`; seeds 100-109 / 200-204 / 300-304; schema 1.1; estimated 4-5 GB |
-| `phase2_v2_bcast` | `configs/data_v2_broadcast.yaml` | 160 | same traffic as v2 with `signal_broadcast: true`, for the vehicle-signal ablation |
+| `phase2_v1` | `configs/data.yaml` | 24 (4 scenarios x seeds 1-6) | original small dataset; stored RSU logs currently include acceleration/distance keys and non-null values for non-empty zones; do not infer raw-log field availability from dataset ID |
+| `phase2_v2_dev` | `configs/data_v2_dev.yaml` | 48 (8 scenarios x 6 seeds) | development collection; locally audited run folders occupy about 1.42 GB |
+| `phase2_v2` | `configs/data_v2.yaml` | 160 (8 scenarios x 20 seeds) | adds `light_moderate` (N=120), `moderate_heavy` (N=300), `asymmetric_ew`, `single_arm`; seeds 100-109 / 200-204 / 300-304; locally audited run folders occupy about 4.78 GB |
+| `phase2_v2_bcast` | `configs/data_v2_broadcast.yaml` | 160 planned | same traffic as v2 with `signal_broadcast: true`, for the vehicle-signal ablation; config exists, generated dataset was absent in the 2026-10-31 audit |
 
 ## 7. Phase 2 hand-off: what the feature adapter can read
+
+The learning adapter/model is not implemented. These are candidate mappings based on current per-agent log fields; validate formulas, masks and units before freezing a tensor schema.
 
 | Shared scalar | RSU source | Vehicle source |
 |---|---|---|
 | mean speed | `mean_speed_mps` | own speed combined with `neighbor_mean_speed_mps` weighted by `neighbor_count` |
-| mean acceleration | `mean_accel_mps2` | own `accel_mps2` only (approximation) |
-| mean distance to stop line | `mean_dist_to_stop_m` | own `dist_to_stop_line_m` only (approximation) |
-| density ratio | `vehicle_count` / zone capacity | (`neighbor_count` + 1) / capacity of the visible stretch |
-| queue / halted ratio | `queue_length_m / zone_m` or `halting_count` / capacity | (`neighbor_halting_count` + own halted) / visible capacity |
-| mean waiting time | `mean_waiting_time_s` | own `waiting_time_s` only (approximation) |
+| mean acceleration | `mean_accel_mps2`, null when the zone is empty | own `accel_mps2` only (proxy) |
+| mean distance to stop line | `mean_dist_to_stop_m`, null when the zone is empty | own `dist_to_stop_line_m` only (proxy) |
+| density ratio | `vehicle_count` / configured zone capacity | (`neighbor_count` + self) / capacity of the clipped visible segment |
+| halted-count ratio | `halting_count` / configured zone capacity | (`neighbor_halting_count` + own halted indicator) / visible capacity; not a contiguous queue measurement |
+| mean waiting time | `mean_waiting_time_s` | own `waiting_time_s` only (proxy) |
 | remaining signal time | `signal_remaining_s` | `signal_remaining_s`, available only when `signal_broadcast` is on |
 | signal R/Y/G | `signal_state` | `signal_state`, within 100 m unless `signal_broadcast` is on |
 
-The adapter must emit an availability mask per value, a fixed normalisation (constants from the config, not learned) and a vehicle/RSU one-hot. It is not implemented yet (P2.3).
+For vehicle mean speed include self exactly once: `(speed_mps + neighbor_count * neighbor_mean_speed_mps) / (neighbor_count + 1)` when neighbors exist, otherwise use own speed. The visible segment is clipped to the incoming edge using own lane position and configured radius. The adapter must emit availability masks, versioned normalization and a vehicle/RSU one-hot. Inspect actual record values and `unavailable`; do not infer availability from the dataset ID.
 
 ## 8. Differences from the plan documents
 

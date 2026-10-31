@@ -1,86 +1,94 @@
-# Data contracts and learning specification
+# Data contracts and learning hand-off
 
-All defaults below are proposed implementation version 1, not measured optimal parameters. Serialize the chosen values, units, schema version and hashes in every run. Change a contract and its tests together.
+## Authority and implementation status
 
-## Spatial and temporal meaning
+This document records the current data contract plus clearly marked Phase 2 proposals. When sources disagree, follow executable code and tests, then generated run artifacts/manifests, then `docs/ARCHITECTURE_AS_BUILT.md` and `docs/STATUS.md`. The original architecture, plans and research materials are design history, not evidence that a feature exists.
 
-- Time = SUMO simulation seconds; sequence number is per sender. Wall-clock timestamps are separate diagnostic fields.
-- Approach ID is north/south/east/west. The prediction target is the 150 m incoming zone before that approach's stop line. Four approach targets remain distinct in global state.
-- Camera sees that approach's configured 150 m zone. Vehicle sees itself and visible vehicles within 100 m constrained to the same incoming approach; do not query unrelated edges and call that local sensing.
-- Split each target zone into six 25 m bins for coverage matching. Only fully observable bins produce per-bin consensus statistics. Exact positions/trajectories stay local; upstream scope contains bin IDs and coverage, which is still potentially sensitive.
-- Queue length means count of vehicles with speed below 0.1 m/s in the target zone, units vehicles. This is a stopped-vehicle count, not physical queue length in metres or a claim of a contiguous queue.
-- Missing/unknown is represented explicitly. Empty zone with known visibility has queue=0; average speed/waiting is unavailable when no vehicles are observed.
+Phase 1 simulation, agent logs and P2.1 labels are implemented. The feature adapter, model, baselines and federation are not implemented. In particular, the proposed 22-value tensor below is a candidate to validate and freeze during P2.2/P2.3; it is not a current code or data contract.
 
-## Local observation record
+## Current simulation and observation contract
 
-Fields: `run_id`, `agent_id`, `agent_type`, `parent_camera_id`, `sim_time_s`, `approach_id`, `visible_bin_ids`, local measurements, measurement availability, source sensor version. Private records may contain position/vehicle IDs needed for local processing. Those do not enter shared summary messages.
+- One signalized four-approach SUMO intersection uses approaches `N`, `E`, `S`, `W`.
+- The four persistent roadside agents are `rsu_N`, `rsu_E`, `rsu_S`, `rsu_W`. Vehicle IDs are created from SUMO lifecycle events and retain their originating parent RSU until arrival. “Camera” in planning diagrams means the roadside sensing role; do not rename the implemented RSUs.
+- One SUMO adapter owns simulator access. `sensors.py` is the observation boundary. Agent/model input must be derived from that agent's own log plus static, versioned configuration; do not read another agent's private log or evaluator truth.
+- An RSU senses its own incoming approach within its configured 150 m zone, its own outgoing zone, and its approach signal. Its own fields are not copies of child vehicle reports.
+- A vehicle always has its own speed, acceleration, lane position and waiting time. While on its incoming edge, its neighbor fields describe same-edge vehicles within the configured 100 m radius. The vehicle's `scope` is `incoming_local`, `in_junction` or `out_of_coverage`; only `incoming_local` observations are eligible for current dataset windows.
+- With `agents.signal_broadcast: false` (default), vehicles see approach signal state only within 100 m of the stop line and do not receive signal time-to-change. With broadcast enabled, signal state and time-to-change are provided on the incoming approach only. Broadcast changes observations, not the simulated traffic.
+- The current topology supports one lane per direction. Do not silently generalize visible-density/capacity formulas to multiple lanes.
+- Unknown values are `None` and named in `unavailable`; unknown is not zero. A known empty zone has zero count/density/queue, while its mean speed, acceleration, distance and waiting time are unavailable.
+- There are no current coverage-bin fields in the message envelope.
 
-Camera records describe its own sensing, not a copy of vehicle reports. Vehicle records describe its own restricted view. An observation adapter returns only what that agent is permitted to see.
+## Current message and run artifacts
 
-## Common feature schema v1: 22 values
+Current message schema is 1.1; schema 1.0 artifacts remain readable. The envelope is `schema`, `version`, `msg_id`, `msg_type`, `origin_id`, `sender_id`, `receiver_id`, `seq`, `sim_time`, `hops`, `evidence`, `payload`, `reserved`. Provenance is carried by `hops`; run identity is in the manifest, not a current message field. Current message types are `vehicle_report`, `rsu_summary` and `relay_bundle`. Prediction/model-update/group-update/trust/alert messages are future work, not implemented fields.
 
-The old diagram's 18 dimensions assumed eight scalar features, but one-hot signal state changes that size. Freeze the corrected schema below before training.
+Run folders contain agent-local logs, message/transport traces, simulator traces, global snapshots, evaluator truth/events and manifests. Dataset runs additionally contain `labels.jsonl` and `windows.jsonl`; those windows contain client/run/time and target labels, not feature tensors. Dataset manifests contain run/client summaries and integrity checks, not model input tensors. Build model features from permitted agent logs and join the future labels through the offline dataset pipeline.
 
-| Order | Value | Vehicle meaning | Camera meaning | Scale |
-| --- | --- | --- | --- | --- |
-| 1 | mean speed | Visible local traffic mean | Visible approach mean | Divide by configured speed limit |
-| 2 | mean acceleration | Visible local traffic mean | Visible approach mean | Signed value divided by configured acceleration scale |
-| 3 | mean distance to stop line | Mean for visible vehicles | Mean for visible vehicles | Divide by target-zone length |
-| 4 | density ratio | Visible count / visible-zone capacity | Visible count / visible-zone capacity | Ratio |
-| 5 | observed queue ratio | Stopped visible count / visible-zone capacity | Same for camera zone | Ratio |
-| 6 | mean waiting time | Visible traffic waiting, consistently defined | Same for camera zone | Divide by configured waiting-time scale |
-| 7 | remaining signal time | If signal timing broadcast is enabled | If available from controller | Divide by maximum cycle duration |
-| 8–10 | red/yellow/green | State for relevant approach movement | Same movement | One-hot |
-| 11–20 | availability mask | One bit per value above | Same | 0 or 1 |
-| 21–22 | vehicle/camera | [1,0] | [0,1] | One-hot |
+## Current label and window contract
 
-Use the through-movement signal as the initial approach reference; signal mapping must be explicit when turning phases differ. Disabled timing broadcasts make feature 7 unavailable. A missing value is filled with normalized zero and mask=0, whereas a measured zero has mask=1. If signal state is unavailable, all three signal values and masks are zero.
+- Target region: the client's own 150 m incoming approach zone.
+- Target time: `end_t + labels.horizon_s`, currently 30 seconds after the final observation in the input history.
+- Queue target: `zone_queue_m`, in metres. It is the contiguous chain of halted vehicles (speed at or below 0.1 m/s), beginning within 15 m of the stop line and extending while consecutive bumper gaps are at most 10 m. Its value reaches the rear bumper of the last vehicle and is capped at the zone length.
+- `halting_count` and `queue_vehicle_count` are separate count measurements; neither is the queue-length target.
+- Congestion class is derived from `zone_queue_m / zone_m`: class 0 free below 0.10; class 1 moderate from 0.10 to below 0.35; class 2 heavy at or above 0.35. These are current configured thresholds, not the older 0.2/0.5 proposal.
+- Input windows use 10 consecutive 1-second records from one client, run and approach. RSU windows require consecutive RSU records; vehicle windows require all records to have `scope = incoming_local`. Windows never cross runs. Splits are assigned by whole run.
+- Current minimum eligibility is 16 valid windows per client, as used in dataset manifests.
+- Labels are produced offline from evaluator truth and are not present in agent input records. Live inference must not access future labels or evaluator truth.
 
-Capacity is a fixed geometric reference: sum over lanes of floor(observed lane length / (reference vehicle length + reference minimum gap)), with minimum denominator one. Save geometry and reference vehicle parameters. It is a normalization reference, not an absolute physical guarantee for every fleet mix. Validate raw physical values before clipping normalized features so impossible reports are not concealed. Fit any learned scaler on training data only.
+## Generated dataset evidence (checked 2026-10-31)
 
-The deterministic adapters preserve these semantics across types. They are not trainable private encoders initially. Future type-specific neural encoders would require an explicit compatible shared head and changed federation contract.
+The following artifacts are present locally. `runs/` is generated data and may be git-ignored; do not infer that it is absent merely because it is not versioned.
 
-## Window and label
+| Dataset | Runs | Run-folder bytes | Integrity in manifest |
+|---|---:|---:|---|
+| `phase2_v1` | 24 | 734,585,503 | 0 split overlaps, 0 window/horizon violations, no evaluator keys in agent logs, 0 collisions/teleports |
+| `phase2_v2_dev` | 48 | 1,419,515,781 | 0 split overlaps, 0 window/horizon violations, no evaluator keys in agent logs, 0 collisions/teleports |
+| `phase2_v2` | 160 | 4,778,347,553 | 0 split overlaps, 0 window/horizon violations, no evaluator keys in agent logs, 0 collisions/teleports |
 
-One sample = 10 consecutive 1 s observations from one client in one approach, ending at t. Input tensor shape `[batch, 10, 22]`. Never bridge missing observations, client identity, run boundaries or split boundaries; skip incomplete windows first, adding imputation only as a documented experiment.
+These are manifest integrity results, not model-performance results. The full broadcast ablation has a config, but no generated `phase2_v2_bcast` dataset was present in the checked workspace. Many demand runs end at the configured 900-second horizon with unfinished vehicles; `sim_timeout` in their run manifest describes the run horizon, not a completed vehicle population. Check each run's duration, completion counts and integrity before selecting it for an experiment.
 
-Both heads predict the full **same approach zone at t+30 s**, regardless of input coverage:
+The v2 manifests contain 3 train / 1 validation / 2 test seeds in dev and 10 / 5 / 5 in full v2, per scenario. See each dataset's manifest for actual client/window counts and label histograms. Do not claim the full dataset or feature audit is clean solely from aggregate label summaries.
 
-- Queue target = stopped count in that zone at t+30 s, supervised by the isolated simulator oracle.
-- Congestion target derives from future queue/capacity ratio: LOW below 0.2; MEDIUM from 0.2 to below 0.5; HIGH at least 0.5. These are operational labels, not universal traffic standards. Log class balance and retain thresholds throughout a comparison.
+## Phase 2 candidate input schema — not yet frozen or implemented
 
-The learned task is forecasting a later state from partial history. Reporting the current simulator queue as a prediction is invalid. The two heads are related by design, so report that dependence rather than claiming independent tasks.
+The previously proposed common tensor shape is `[batch, 10, 22]`: seven scalar values, three signal one-hot values, ten availability-mask values and two agent-type values. Candidate sources appear in the generated logs, with the noted limitations. Implement no adapter until source, units, masks, normalization and boundary behavior have focused tests.
 
-Train with cross-entropy plus MSE of queue/capacity; the queue head uses a nonnegative activation and converts back to vehicle counts for MAE/RMSE. Do not silently truncate forecasts at capacity; report extrapolation if geometry underestimates effective capacity. Empty target region has a known zero queue and LOW class.
+| Index | Candidate value | RSU source | Vehicle source and caveat |
+|---:|---|---|---|
+| 1 | Local mean speed (m/s) | `mean_speed_mps`; unavailable for an empty zone | `(speed_mps + neighbor_count * neighbor_mean_speed_mps) / (neighbor_count + 1)` when neighbors exist; otherwise own `speed_mps`. This is a local mean, not an approach-wide mean. |
+| 2 | Local mean acceleration | `mean_accel_mps2`; null in an empty zone | Own `accel_mps2` only; label as a vehicle proxy, not a neighborhood mean. |
+| 3 | Local mean distance to stop line | `mean_dist_to_stop_m`; null in an empty zone | Own `dist_to_stop_line_m` only; a vehicle-position proxy, not a neighborhood mean. |
+| 4 | Local density ratio | `vehicle_count / capacity_veh_in_zone`; current manifest records the nominal one-lane 150 m capacity | `(neighbor_count + 1) / visible_segment_capacity`; calculate the clipped segment from static edge length, own `lane_pos_m` and radius, and current one-lane geometry. Verify boundary cases and the denominator in tests. |
+| 5 | Local halted-count ratio | `halting_count / capacity_veh_in_zone` | `(neighbor_halting_count + own_halted_indicator) / visible_segment_capacity`, where own halted is derived from own speed and configured threshold. This is a local halted-count ratio, not the contiguous queue target. |
+| 6 | Local mean waiting time (s) | `mean_waiting_time_s`; unavailable for an empty zone | Own `waiting_time_s` only; a vehicle proxy. |
+| 7 | Time to next displayed signal-state change (s) | `signal_remaining_s` | `signal_remaining_s` only when broadcast is enabled; otherwise unavailable. |
+| 8–10 | Signal state one-hot | `signal_state` for this approach | `signal_state` when present; vehicle availability is coverage-dependent. Normalize the current `r`/`y`/`G` state representation explicitly. |
+| 11–20 | Masks for values 1–10 | Set from source availability, not from normalized value | Same; repeat signal availability consistently for the three one-hot channels. |
+| 21–22 | Client type one-hot | RSU `[0,1]` | Vehicle `[1,0]` |
 
-Oracle labels are available for offline supervised datasets and only after horizon maturity in a live simulation. Inference takes input history only. Trust cannot look ahead or read evaluator attack labels.
+The nominal capacity in the manifests is computed as zone length divided by vehicle length plus minimum gap. Apply the same geometry to the vehicle's clipped visible segment; do not use a fixed 200 m denominator at approach boundaries. Validate the capacity value against the resolved run configuration rather than hard-coding it.
 
-## Partitioning
+Observed sample audit: for the eight `phase2_v2_dev` seed-100 scenario runs, all 28,800 RSU timesteps had signal, signal-time, count, density and halted-count values; RSU mean speed/acceleration/distance were available on 23,184/28,800 records (80.5%), with the rest corresponding to empty-zone missing means. In a convenience sample of the first three sorted vehicle logs per run (24 files, 2,561 records), all own speed/acceleration/waiting values were present; among the 1,857 `incoming_local` records, distance and neighbor-count fields were present, signal state was available on a subset, and signal time was unavailable throughout because broadcast was off. This is a coverage sample, not a population-wide feature audit.
 
-Assign entire simulation runs to train/validation/test by fixed seed lists before windowing. Suggested initial run split: seeds 100–109 train, 200–204 validation, 300–304 test, for each demand scenario. Training/validation/test vehicle IDs are run-qualified and disjoint. Persistent camera names are permitted across runs, but no observations/windows cross runs. Use separate seeds 400–404 for the trusted model-validation calibration set; this set is not the final test set.
+For model preprocessing, represent missing normalized values as zero only alongside mask 0; a measured zero has mask 1. Use fixed, versioned domain normalizers or fit learned scalers on training data only. Do not fit, tune or select features using test labels.
 
-Demand profiles: balanced light, balanced moderate, balanced heavy and asymmetric heavy north/south versus light east/west. Calibrate actual departure rates with SUMO; verify the resulting queue distributions rather than assuming the named regime occurred. Class imbalance is reported, not fixed by resampling the test set.
+Full RSU-log audit: all `rsu_*.jsonl` records in generated v1, v2_dev and v2 datasets contain the acceleration and distance field keys. Non-null values occur on 68,326/86,400 (79.1%), 139,073/172,800 (80.5%) and 458,725/576,000 (79.6%) records respectively; null values correspond to empty zones. The older claim that v1 records lack these values is stale for the artifacts currently present. Use actual field presence, `None` and `unavailable` per record; never infer feature availability solely from dataset ID or message schema version.
 
-Natural non-IID clients differ by approach, residence time, agent type and coverage. For an IID control, redistribute training windows with a saved deterministic partition only as an offline experiment. Label it synthetic IID rather than physically local observations. Keep the held-out evaluation set fixed.
+### Feature audit acceptance before training
 
-## Message envelope
+1. Verify every mapped field against actual records from every dataset generation; absent or null fields remain masked unavailable.
+2. Verify vehicle formulas include self exactly once, handle zero neighbors, respect incoming-local scope and compute clipped visible capacity at road boundaries.
+3. Keep RSU aggregate measurements and vehicle-local proxies explicitly distinguished in schema/docs.
+4. Prove windows and features contain no evaluator keys, future labels or cross-agent reads; retain the manifest integrity check.
+5. Freeze schema order/version, units, normalizers and capacity references in one implementation/config and save its hash in each model/run.
+6. Only after these checks may the 22-value candidate become the implemented feature contract. If a candidate cannot be supported by permitted evidence, keep it unavailable or revise the schema before training.
 
-All messages: `schema_version`, `run_id`, `message_id`, `message_type`, `sender_id`, `origin_id`, `parent_camera_id`, `sequence_no`, `sim_time_s`, `sent_time`, `approach_id`, `coverage_bin_ids`, `provenance_ids`. Preserve origin and original timestamp through relay. A relay is not an independent observation or extra vote.
+## Phase 2 proposals (not implemented)
 
-| Payload | Required content | Forbidden ambiguity |
-| --- | --- | --- |
-| ObservationSummary | Per-visible-bin speed/queue/waiting summaries and availability; measurement time and coverage | No unlabelled mixing of current measurements and future predictions |
-| Prediction | Input end time, target time, horizon, target approach, three class probabilities, queue estimate, model version | No averaging forecasts for different times/regions |
-| ModelUpdate | Round ID, base-model hash, schema hash, tensor signature, weights or delta (one documented convention), distinct-window count and local metrics | No raw training histories; never interpret delta as full weights |
-| GroupUpdate | Group model, effective mass, included client IDs/update IDs, round/base hash | No lost provenance or equal weighting of unequal groups |
-| TrustEvidence | Factor scores, availability, context overlap, calibration-set version, prior/current trust and rejection reason | No attack truth or unavailable factors silently set to perfect/bad |
-| GlobalTrafficState | Per-approach observed/fused current state and future forecast, freshness, coverage, contributing origins, confidence status | No single average queue across disjoint approaches |
-| Alert | Event ID, event kind, agent/approach, evidence, severity, start/update/end time and lifecycle transition | “Unreliable” is not proof of malicious intent |
+- Predict both future queue length in metres and the corresponding three-class congestion label as an explicitly multi-task experiment. The class target is derived from the same queue target; report that dependence.
+- Compare persistence and signal-aware non-neural references before GRU/FL claims. A vehicle baseline may use only its local observations; do not substitute evaluator truth for its current input.
+- Local training, offline pooled-central reference, flat FedAvg and hierarchical FedAvg are planned. The decision whether the four RSUs are persistent learning clients across runs remains proposed in `docs/STATUS.md`; choose and document client identity/partitioning before implementation.
+- Any future model-update protocol must specify round/base-model and feature-schema versions, tensor signatures, finite-value validation, unique client IDs, distinct-window sample mass and rejected-update reasons. It must not carry raw histories, per-example labels or evaluator truth.
+- Any future hierarchy must preserve group mass, avoid duplicate RSU self-updates/child sample counts, handle empty groups without zero models, and equal flat FedAvg on identical updates in a hand-computed fixture.
 
-## State and protocol invariants
-
-Deduplicate by run + origin + sequence/message ID. Apply a default 5 s semantic freshness limit; an older report becomes stale, not zero. Same-origin relays count once. Validate probability sum, finite values, type, units, coverage and version. Keep invalid-message diagnostics separate from statistical anomalies.
-
-Training update IDs include round and origin. A client can belong to only one camera group in a round. Training sample count is verified against local replay manifest in experiments and bounded by declared dataset size in the simulator; do not assume adversarial sample counts are inherently trustworthy in deployment.
-
-Raw logs, allowed upstream summaries, oracle truth and attack labels have separate stores and explicit readers. A transport payload audit is required at each phase gate.
+Do not treat these planned message types, model shapes, baselines or federation protocols as implemented until code and tests exist. Do not introduce trust/security fields as an implicit Phase 2 requirement.
