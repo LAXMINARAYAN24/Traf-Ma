@@ -1,0 +1,29 @@
+# Development-size version of configs/data_v2.yaml: same 8 scenarios, fewer seeds (3 train / 1 val / 2 test = 48 runs).
+#   python -m trafma collect --config configs/data_v2_dev.yaml [--resume] [--jobs 2]
+# Estimated about 1.3 GB under data/phase2_v2_dev/runs (git-ignored; per-run size measured on v1 averages about 27 MB)
+# and roughly 5-10 min. Use it while building P2.2-P2.5; generate the full data_v2 set for the final numbers.
+# Seeds are a subset of data_v2's, so dev runs are byte-identical to the same-named runs in the full set.
+dataset_id: phase2_v2_dev
+output_dir: data
+jobs: 2
+base:
+  run: {duration_s: 900}
+scenarios:
+  - {name: free,           vehicles: 60,  profile: balanced}
+  - {name: light_moderate, vehicles: 120, profile: balanced}
+  - {name: moderate,       vehicles: 220, profile: balanced}
+  - {name: moderate_heavy, vehicles: 300, profile: balanced}
+  - {name: heavy,          vehicles: 380, profile: balanced}
+  - {name: asymmetric,     vehicles: 260, profile: asymmetric}
+  - name: asymmetric_ew
+    vehicles: 260
+    profile: asymmetric
+    approach_weights: {N: 0.1, S: 0.1, E: 0.4, W: 0.4}
+  - name: single_arm
+    vehicles: 200
+    profile: custom
+    approach_weights: {N: 3, E: 1, S: 1, W: 1}
+splits:
+  train: [100, 101, 102]
+  val:   [200]
+  test:  [300, 301]

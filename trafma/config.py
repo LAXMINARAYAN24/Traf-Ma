@@ -80,6 +80,9 @@ class AgentCfg:
     halting_speed_mps: float = 0.1
     queue_gap_m: float = 10.0          # max gap between consecutive halted vehicles in one queue chain
     queue_start_m: float = 15.0        # first halted vehicle must be this close to the stop line
+    signal_broadcast: bool = False     # RSU broadcasts its road's signal state + time-to-change to the vehicles
+                                       # on that road (anywhere on the approach). False = vehicles read the signal
+                                       # state only within vehicle_radius_m and never see the timer (original behaviour)
 
 
 @dataclass
@@ -183,6 +186,8 @@ class Config:
         num(a.halting_speed_mps, "agents.halting_speed_mps", 0)
         num(a.queue_gap_m, "agents.queue_gap_m", 0)
         num(a.queue_start_m, "agents.queue_start_m", 0)
+        if not isinstance(a.signal_broadcast, bool):
+            raise ConfigError(f"agents.signal_broadcast must be true or false, got {a.signal_broadcast!r}")
         if a.rsu_zone_m > n.arm_length_m - 20:
             raise ConfigError("agents.rsu_zone_m must fit on the approach (arm_length_m - 20)")
         if a.rsu_outbound_zone_m > n.arm_length_m - 20:

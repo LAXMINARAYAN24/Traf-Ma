@@ -17,10 +17,10 @@ EVIDENCE_RELAY = "relay"              # the bundle wrapper itself
 VEHICLE_FIELDS = ["scope", "edge_id", "speed_mps", "accel_mps2", "lane_pos_m", "waiting_time_s",
                   "dist_to_stop_line_m", "signal_state", "leader_gap_m", "leader_speed_mps",
                   "neighbor_count", "neighbor_ahead_count", "neighbor_behind_count",
-                  "neighbor_halting_count", "neighbor_mean_speed_mps"]
+                  "neighbor_halting_count", "neighbor_mean_speed_mps", "signal_remaining_s"]
 RSU_FIELDS = ["approach", "zone_m", "coverage_m", "vehicle_count", "halting_count", "queue_length_m",
-              "queue_vehicle_count", "mean_speed_mps", "density_veh_per_km", "mean_waiting_time_s",
-              "max_waiting_time_s", "outbound_count", "signal_state", "signal_remaining_s",
+              "queue_vehicle_count", "mean_speed_mps", "mean_accel_mps2", "mean_dist_to_stop_m",
+              "density_veh_per_km", "mean_waiting_time_s", "max_waiting_time_s", "outbound_count", "signal_state", "signal_remaining_s",
               "signal_phase_index"]
 PAYLOAD_FIELDS = {VEHICLE_REPORT: VEHICLE_FIELDS, RSU_SUMMARY: RSU_FIELDS}
 RESERVED = {"trust": "unavailable", "signature": "unavailable"}   # filled in Phase 3

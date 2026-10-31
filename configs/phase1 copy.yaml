@@ -1,0 +1,21 @@
+# Phase 1 defaults (P1.1-P1.6). Every value is an editable default, NOT a research finding.
+run:
+  seed: 42
+  vehicles: 20            # N
+  duration_s: 600
+  step_s: 1.0
+  report_step_s: 1.0
+  output_dir: runs
+  message_trace: full
+network:
+  arm_length_m: 300       # one lane per direction on each arm
+signal:
+  green_s: 25             # split phasing: N, E, S, W each get a protected green
+  yellow_s: 3
+  all_red_s: 2
+demand:
+  profile: balanced       # balanced | asymmetric | custom
+  turn_probs: {straight: 0.6, left: 0.2, right: 0.2}
+agents:
+  rsu_zone_m: 150         # RSU sensing / target zone before each stop line
+  vehicle_radius_m: 100   # vehicle sensing radius, only on its own incoming approach

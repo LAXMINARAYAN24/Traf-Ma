@@ -1,4 +1,4 @@
-"""python -m trafma <command>   (doctor | build | simulate | collect | replay | gate | report)"""
+"""python -m trafma <command>   (doctor | build | simulate | collect | replay | inspect | gate | report)"""
 from __future__ import annotations
 
 import argparse
@@ -66,6 +66,16 @@ def main(argv=None) -> int:
     r.add_argument("--every", type=float, default=10.0)
     r.add_argument("--verify", action="store_true", help="re-run SUMO and compare the deterministic trace")
 
+    i = sub.add_parser("inspect", help="show ONE agent's local view and message path from a saved run (no SUMO needed)")
+    i.add_argument("--run", required=True)
+    who = i.add_mutually_exclusive_group(required=True)
+    who.add_argument("--vehicle", metavar="ID", help="vehicle agent id, e.g. veh_0005")
+    who.add_argument("--rsu", metavar="N|E|S|W", help="RSU approach letter")
+    i.add_argument("--every", type=float, default=10.0, help="print one row every this many seconds (default 10)")
+    i.add_argument("--from", dest="t_from", type=float, default=0.0)
+    i.add_argument("--to", dest="t_to", type=float)
+    i.add_argument("--paths", type=int, default=5, help="vehicle only: how many report paths to print (default 5)")
+
     g = sub.add_parser("gate", help="check the Phase 1 gate against a saved run")
     g.add_argument("--run", required=True)
     g.add_argument("--reproduce", action="store_true")
@@ -102,6 +112,17 @@ def main(argv=None) -> int:
             from .replay import replay_run
             r_ = replay_run(a.run, a.t_from, a.t_to, a.every, a.verify)
             return 0 if (r_ is None or r_["identical"]) else 3
+        if a.cmd == "inspect":
+            from .inspector import InspectError, inspect_rsu, inspect_vehicle
+            try:
+                if a.vehicle:
+                    inspect_vehicle(a.run, a.vehicle, a.every, a.t_from, a.t_to, a.paths)
+                else:
+                    inspect_rsu(a.run, a.rsu, a.every, a.t_from, a.t_to)
+            except InspectError as e:
+                print(f"inspect error: {e}", file=sys.stderr)
+                return 2
+            return 0
         if a.cmd == "gate":
             from .gate import run_gate, format_gate
             res = run_gate(a.run, a.reproduce, a.pytest)

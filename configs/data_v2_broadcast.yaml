@@ -1,0 +1,32 @@
+# Same runs as configs/data_v2.yaml, but the RSU broadcasts signal state + time-to-change to vehicles
+# (agents.signal_broadcast: true). Traffic is identical (sensors never change traffic); only what the
+# vehicle agents can observe differs. Use it for the "vehicle signal broadcast" ablation:
+#   python -m trafma collect --config configs/data_v2_broadcast.yaml
+# Stored separately under data/phase2_v2_bcast so the two datasets are never mixed.
+# SAME SIZE as data_v2.yaml (estimated 4-5 GB). For a cheaper ablation, shorten the three seed lists below
+# (and compare against a data_v2 dataset built with the same shortened lists).
+dataset_id: phase2_v2_bcast
+output_dir: data
+jobs: 2
+base:
+  run: {duration_s: 900}
+  agents: {signal_broadcast: true}
+scenarios:
+  - {name: free,           vehicles: 60,  profile: balanced}
+  - {name: light_moderate, vehicles: 120, profile: balanced}
+  - {name: moderate,       vehicles: 220, profile: balanced}
+  - {name: moderate_heavy, vehicles: 300, profile: balanced}
+  - {name: heavy,          vehicles: 380, profile: balanced}
+  - {name: asymmetric,     vehicles: 260, profile: asymmetric}
+  - name: asymmetric_ew
+    vehicles: 260
+    profile: asymmetric
+    approach_weights: {N: 0.1, S: 0.1, E: 0.4, W: 0.4}
+  - name: single_arm
+    vehicles: 200
+    profile: custom
+    approach_weights: {N: 3, E: 1, S: 1, W: 1}
+splits:
+  train: [100, 101, 102, 103, 104, 105, 106, 107, 108, 109]
+  val:   [200, 201, 202, 203, 204]
+  test:  [300, 301, 302, 303, 304]

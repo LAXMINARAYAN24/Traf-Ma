@@ -29,7 +29,9 @@ def test_empty_region_is_unavailable_not_zero(topo, cfg):
     v = rsu_view(world([], topo), topo, "N", cfg)
     assert v["vehicle_count"] == 0 and v["queue_length_m"] == 0.0
     assert v["mean_speed_mps"] is None and v["max_waiting_time_s"] is None
-    assert set(v["unavailable"]) == {"mean_speed_mps", "mean_waiting_time_s", "max_waiting_time_s"}
+    assert v["mean_accel_mps2"] is None and v["mean_dist_to_stop_m"] is None
+    assert set(v["unavailable"]) == {"mean_speed_mps", "mean_accel_mps2", "mean_dist_to_stop_m",
+                                     "mean_waiting_time_s", "max_waiting_time_s"}
 
 
 def test_rsu_counts_outbound_road_of_its_own_road_only(topo, cfg):

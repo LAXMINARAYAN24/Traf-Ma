@@ -6,6 +6,8 @@ RSU view      : vehicles on its own incoming road within `rsu_zone_m` of the sto
 Vehicle view  : own kinematics always; neighbours/leader/signal ONLY while the vehicle is on its own
                 incoming approach, within `vehicle_radius_m`. Out-of-coverage values are None and
                 listed in `unavailable` - unknown is never encoded as zero.
+                With `agents.signal_broadcast=true` the vehicle's own RSU also broadcasts the signal state and
+                time-to-change to it anywhere on the incoming approach (default false = original behaviour).
 """
 from __future__ import annotations
 
@@ -89,16 +91,21 @@ def rsu_view(world: WorldSnapshot, topo: Topology, approach: str, cfg: Config) -
     unavailable = []
     if n:
         mean_speed = sum(v.speed for _, v in inz) / n
+        mean_accel = sum(v.accel for _, v in inz) / n
+        mean_dist = sum(d for d, _ in inz) / n          # metres to the stop line (not normalised here)
         mean_wait = sum(v.waiting_s for _, v in inz) / n
         max_wait = max(v.waiting_s for _, v in inz)
     else:
-        mean_speed = mean_wait = max_wait = None
-        unavailable += ["mean_speed_mps", "mean_waiting_time_s", "max_waiting_time_s"]
+        mean_speed = mean_accel = mean_dist = mean_wait = max_wait = None
+        unavailable += ["mean_speed_mps", "mean_accel_mps2", "mean_dist_to_stop_m",
+                        "mean_waiting_time_s", "max_waiting_time_s"]
     return {
         "approach": approach, "zone_m": zone, "coverage_m": zone,
         "vehicle_count": n, "halting_count": halting,
         "queue_length_m": round(q_m, 3), "queue_vehicle_count": q_n,
         "mean_speed_mps": None if mean_speed is None else round(mean_speed, 3),
+        "mean_accel_mps2": None if mean_accel is None else round(mean_accel, 3),
+        "mean_dist_to_stop_m": None if mean_dist is None else round(mean_dist, 3),
         "density_veh_per_km": round(n / (zone / 1000.0), 3),
         "mean_waiting_time_s": None if mean_wait is None else round(mean_wait, 3),
         "max_waiting_time_s": None if max_wait is None else round(max_wait, 3),
@@ -112,7 +119,7 @@ def rsu_view(world: WorldSnapshot, topo: Topology, approach: str, cfg: Config) -
 
 
 # ------------------------------------------------------------------ vehicle
-VEHICLE_MASKED = ["dist_to_stop_line_m", "signal_state", "leader_gap_m", "leader_speed_mps",
+VEHICLE_MASKED = ["dist_to_stop_line_m", "signal_state", "signal_remaining_s", "leader_gap_m", "leader_speed_mps",
                   "neighbor_count", "neighbor_ahead_count", "neighbor_behind_count",
                   "neighbor_halting_count", "neighbor_mean_speed_mps"]
 
@@ -143,11 +150,17 @@ def vehicle_view(world: WorldSnapshot, topo: Topology, vid: str, parent: str, cf
     dist = g.in_len - me.lane_pos
     view["dist_to_stop_line_m"] = round(max(dist, 0.0), 3)
     unavailable = []
-    if dist <= a.vehicle_radius_m:      # the signal head is only readable when close
+    if a.signal_broadcast or dist <= a.vehicle_radius_m:   # head readable when close, or if the RSU broadcasts it
         view["signal_state"] = approach_signal_char(world.signal.state, g.link_indices)
     else:
         view["signal_state"] = None
         unavailable.append("signal_state")
+    if a.signal_broadcast:              # the timer is only ever available through the RSU broadcast
+        view["signal_remaining_s"] = time_to_state_change(topo, parent, world.signal.phase_index,
+                                                          world.signal.remaining_s)
+    else:
+        view["signal_remaining_s"] = None
+        unavailable.append("signal_remaining_s")
     nb = [v for v in world.vehicles.values()
           if v.vid != vid and v.edge_id == me.edge_id and abs(v.lane_pos - me.lane_pos) <= a.vehicle_radius_m]
     ahead = [v for v in nb if v.lane_pos > me.lane_pos]
