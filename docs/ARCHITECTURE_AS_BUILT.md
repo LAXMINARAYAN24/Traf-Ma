@@ -65,9 +65,13 @@ Dataset folders: `data/<dataset_id>/dataset_manifest.json` and `dataset_report.t
 | `phase2_v2` | `configs/data_v2.yaml` | 160 (8 scenarios x 20 seeds) | adds `light_moderate` (N=120), `moderate_heavy` (N=300), `asymmetric_ew`, `single_arm`; seeds 100-109 / 200-204 / 300-304; locally audited run folders occupy about 4.78 GB |
 | `phase2_v2_bcast` | `configs/data_v2_broadcast.yaml` | 160 planned | same traffic as v2 with `signal_broadcast: true`, for the vehicle-signal ablation; config exists, generated dataset was absent in the 2026-10-31 audit |
 
-## 7. Phase 2 hand-off: what the feature adapter can read
+## 7. Phase 2 feature adapter
 
-The learning adapter/model is not implemented. These are candidate mappings based on current per-agent log fields; validate formulas, masks and units before freezing a tensor schema.
+`trafma.features/1` implements a deterministic 22-value timestep adapter and ten-step window reader. The adapter uses only each client's own log plus its run's static config/topology. Full `phase2_v1`, `phase2_v2_dev` and `phase2_v2` audits pass with one shared feature-schema hash.
+
+The two-head GRU supports explicit single-client local training and a pooled offline central reference. Flat FedAvg trains selected saved-trajectory clients from a common global checkpoint. Hierarchical FedAvg uses four fixed groups: vehicle updates route to their original parent RSU, and the user-approved persistent `rsu_N/E/S/W` learners train separately on their own sensor windows pooled across training runs (never on child histories). The smoke configuration caps each RSU learner at 2,000 distinct training windows. All learning/federation is offline replay; the SUMO live loop is not yet performing online learning.
+
+`trafma fedavg --iid-control` is a synthetic IID diagnostic over the same selected natural replay windows. `--transient-participation` deterministically resamples vehicle participation each round; those arrivals/departures are replay simulation, not live connections. Update payloads contain model tensors and allowlisted scalar metadata, not raw histories or labels. See `docs/PHASE2_IMPLEMENTATION.md` for evidence and limitations.
 
 | Shared scalar | RSU source | Vehicle source |
 |---|---|---|
@@ -80,7 +84,9 @@ The learning adapter/model is not implemented. These are candidate mappings base
 | remaining signal time | `signal_remaining_s` | `signal_remaining_s`, available only when `signal_broadcast` is on |
 | signal R/Y/G | `signal_state` | `signal_state`, within 100 m unless `signal_broadcast` is on |
 
-For vehicle mean speed include self exactly once: `(speed_mps + neighbor_count * neighbor_mean_speed_mps) / (neighbor_count + 1)` when neighbors exist, otherwise use own speed. The visible segment is clipped to the incoming edge using own lane position and configured radius. The adapter must emit availability masks, versioned normalization and a vehicle/RSU one-hot. Inspect actual record values and `unavailable`; do not infer availability from the dataset ID.
+For vehicle mean speed include self exactly once: `(speed_mps + neighbor_count * neighbor_mean_speed_mps) / (neighbor_count + 1)` when neighbors exist, otherwise use own speed. The visible segment is clipped to the incoming edge using own lane position and configured radius. The adapter emits ten availability masks and a vehicle/RSU one-hot. Missing values are zero only with mask zero; a measured zero has mask one. Fixed normalization and ordered names are versioned in `trafma/features.py`.
+
+Full log audits passed across 24 v1, 48 v2_dev and 160 full-v2 runs: 86,400 / 172,800 / 576,000 RSU records and 852,184 / 1,620,921 / 5,471,540 vehicle records respectively. All share feature schema SHA-256 `46196acbcc933a9b60f0a3151cf3a5822350c6988b7894a50f5722ac80f4abe2`; per-dataset availability and errors are saved in each `feature_audit.json`.
 
 ## 8. Differences from the plan documents
 
@@ -91,5 +97,5 @@ For vehicle mean speed include self exactly once: `(speed_mps + neighbor_count *
 | Congestion thresholds | queue/capacity 0.2 / 0.5 | queue_m/zone_m 0.10 / 0.35 |
 | Envelope | `run_id`, `parent_camera_id`, `coverage_bin_ids`, `sent_time` | `hops` carries provenance; run id is in the manifest, not the envelope; no coverage bins yet |
 | Message types | + prediction, model update, group update, trust evidence, alert | only `vehicle_report`, `rsu_summary`, `relay_bundle` |
-| Feature schema | 22 values | not implemented (see section 7) |
+| Feature schema | 22-value proposal | `trafma.features/1`, GRU and offline federation implemented; audits pass on v1, v2_dev and v2 |
 | Seeds | train 100-109, val 200-204, test 300-304 | v2 follows this; v1 used 1-3 / 4 / 5-6 |

@@ -48,7 +48,7 @@ Start with clean baseline, then one attack type at a time, then combined/stress 
 | Area | Metrics | Definition/qualification |
 | --- | --- | --- |
 | Congestion forecast | Macro-F1, balanced accuracy, accuracy, class confusion matrix | Held-out t+30 labels; show class support |
-| Queue forecast | MAE, RMSE in vehicles | Same region/horizon; report per-approach/type and aggregate |
+| Queue forecast | MAE, RMSE in metres | Same region/horizon; report per-approach/type and aggregate |
 | Current consensus | Queue MAE, speed error, valid coverage fraction | Compare fused current state with evaluator truth; distinguish from prediction error |
 | Detection | Precision, recall/TPR, FPR, F1 | Eligible agent-round with active attack vs clean, plus per-attack-episode detection |
 | False quarantine | Benign quarantine transitions / benign eligible agent-rounds; fraction of benign agents ever quarantined | State both denominators; don't call benign disagreement malicious |

@@ -4,7 +4,7 @@
 
 This document records the current data contract plus clearly marked Phase 2 proposals. When sources disagree, follow executable code and tests, then generated run artifacts/manifests, then `docs/ARCHITECTURE_AS_BUILT.md` and `docs/STATUS.md`. The original architecture, plans and research materials are design history, not evidence that a feature exists.
 
-Phase 1 simulation, agent logs and P2.1 labels are implemented. The feature adapter, model, baselines and federation are not implemented. In particular, the proposed 22-value tensor below is a candidate to validate and freeze during P2.2/P2.3; it is not a current code or data contract.
+Phase 1 simulation, agent logs and P2.1 labels are implemented. `trafma.features/1`, the two-head GRU, local/central training, flat and hierarchical FedAvg, synthetic IID control, and transient offline participation replay are implemented. Full v1, v2_dev and v2 feature audits pass with one shared feature-schema hash. Phase 2 evaluation artifacts and remaining limits are recorded in `docs/STATUS.md`.
 
 ## Current simulation and observation contract
 
@@ -47,13 +47,13 @@ The following artifacts are present locally. `runs/` is generated data and may b
 
 These are manifest integrity results, not model-performance results. The full broadcast ablation has a config, but no generated `phase2_v2_bcast` dataset was present in the checked workspace. Many demand runs end at the configured 900-second horizon with unfinished vehicles; `sim_timeout` in their run manifest describes the run horizon, not a completed vehicle population. Check each run's duration, completion counts and integrity before selecting it for an experiment.
 
-The v2 manifests contain 3 train / 1 validation / 2 test seeds in dev and 10 / 5 / 5 in full v2, per scenario. See each dataset's manifest for actual client/window counts and label histograms. Do not claim the full dataset or feature audit is clean solely from aggregate label summaries.
+The v2 manifests contain 3 train / 1 validation / 2 test seeds in dev and 10 / 5 / 5 in full v2, per scenario. Each dataset manifest contains client/window counts and label histograms; the separate raw-log feature audit also passes for all three datasets.
 
-## Phase 2 candidate input schema — not yet frozen or implemented
+## Phase 2 development input schema: `trafma.features/1`
 
-The previously proposed common tensor shape is `[batch, 10, 22]`: seven scalar values, three signal one-hot values, ten availability-mask values and two agent-type values. Candidate sources appear in the generated logs, with the noted limitations. Implement no adapter until source, units, masks, normalization and boundary behavior have focused tests.
+The adapter emits `[10,22]` per window: seven scalar values, three signal one-hot values, ten availability-mask values and two agent-type values. The sources and limitations below are implemented for the development dataset; see `docs/PHASE2_IMPLEMENTATION.md` for exact units and normalizers. This schema is not final until the v1 and full-v2 scans also pass.
 
-| Index | Candidate value | RSU source | Vehicle source and caveat |
+| Index | Feature value | RSU source | Vehicle source and caveat |
 |---:|---|---|---|
 | 1 | Local mean speed (m/s) | `mean_speed_mps`; unavailable for an empty zone | `(speed_mps + neighbor_count * neighbor_mean_speed_mps) / (neighbor_count + 1)` when neighbors exist; otherwise own `speed_mps`. This is a local mean, not an approach-wide mean. |
 | 2 | Local mean acceleration | `mean_accel_mps2`; null in an empty zone | Own `accel_mps2` only; label as a vehicle proxy, not a neighborhood mean. |
@@ -68,27 +68,27 @@ The previously proposed common tensor shape is `[batch, 10, 22]`: seven scalar v
 
 The nominal capacity in the manifests is computed as zone length divided by vehicle length plus minimum gap. Apply the same geometry to the vehicle's clipped visible segment; do not use a fixed 200 m denominator at approach boundaries. Validate the capacity value against the resolved run configuration rather than hard-coding it.
 
-Observed sample audit: for the eight `phase2_v2_dev` seed-100 scenario runs, all 28,800 RSU timesteps had signal, signal-time, count, density and halted-count values; RSU mean speed/acceleration/distance were available on 23,184/28,800 records (80.5%), with the rest corresponding to empty-zone missing means. In a convenience sample of the first three sorted vehicle logs per run (24 files, 2,561 records), all own speed/acceleration/waiting values were present; among the 1,857 `incoming_local` records, distance and neighbor-count fields were present, signal state was available on a subset, and signal time was unavailable throughout because broadcast was off. This is a coverage sample, not a population-wide feature audit.
+The v1, v2_dev and full-v2 feature-audit artifacts are saved under each dataset directory. All pass with no feature errors, evaluator-label keys, mixed broadcast settings or split overlap. Detailed missingness is per dataset; the v2_dev measurements are not assumed to be population estimates.
 
-For model preprocessing, represent missing normalized values as zero only alongside mask 0; a measured zero has mask 1. Use fixed, versioned domain normalizers or fit learned scalers on training data only. Do not fit, tune or select features using test labels.
+For model preprocessing, represent missing normalized values as zero only alongside mask 0; a measured zero has mask 1. The schema uses fixed normalizers defined in `trafma/features.py`; no scaler is fit on validation or test data.
 
 Full RSU-log audit: all `rsu_*.jsonl` records in generated v1, v2_dev and v2 datasets contain the acceleration and distance field keys. Non-null values occur on 68,326/86,400 (79.1%), 139,073/172,800 (80.5%) and 458,725/576,000 (79.6%) records respectively; null values correspond to empty zones. The older claim that v1 records lack these values is stale for the artifacts currently present. Use actual field presence, `None` and `unavailable` per record; never infer feature availability solely from dataset ID or message schema version.
 
-### Feature audit acceptance before training
+### Feature audit status and remaining checks
 
-1. Verify every mapped field against actual records from every dataset generation; absent or null fields remain masked unavailable.
-2. Verify vehicle formulas include self exactly once, handle zero neighbors, respect incoming-local scope and compute clipped visible capacity at road boundaries.
-3. Keep RSU aggregate measurements and vehicle-local proxies explicitly distinguished in schema/docs.
-4. Prove windows and features contain no evaluator keys, future labels or cross-agent reads; retain the manifest integrity check.
-5. Freeze schema order/version, units, normalizers and capacity references in one implementation/config and save its hash in each model/run.
-6. Only after these checks may the 22-value candidate become the implemented feature contract. If a candidate cannot be supported by permitted evidence, keep it unavailable or revise the schema before training.
+1. Full v1, v2_dev and v2 scans verify the 22-value adapter over every RSU and vehicle record; absent/null fields remain masked unavailable.
+2. Tests verify self-weighting in vehicle mean speed, zero-neighbor behavior, incoming-local scope, signal masks and clipped visible capacity.
+3. RSU aggregates and vehicle-local proxies are distinguished in code and docs.
+4. The window adapter enforces run/client/time continuity and future-label alignment; the feature audit checks evaluator-key exclusion and disjoint run splits.
+5. The versioned feature order, units, fixed normalizers, type bits and schema hash are saved in audit and experiment artifacts.
+6. All available v1, v2_dev and full v2 feature scans pass with schema hash `46196acbcc933a9b60f0a3151cf3a5822350c6988b7894a50f5722ac80f4abe2`.
 
-## Phase 2 proposals (not implemented)
+## Remaining Phase 2 proposals
 
 - Predict both future queue length in metres and the corresponding three-class congestion label as an explicitly multi-task experiment. The class target is derived from the same queue target; report that dependence.
-- Compare persistence and signal-aware non-neural references before GRU/FL claims. A vehicle baseline may use only its local observations; do not substitute evaluator truth for its current input.
-- Local training, offline pooled-central reference, flat FedAvg and hierarchical FedAvg are planned. The decision whether the four RSUs are persistent learning clients across runs remains proposed in `docs/STATUS.md`; choose and document client identity/partitioning before implementation.
-- Any future model-update protocol must specify round/base-model and feature-schema versions, tensor signatures, finite-value validation, unique client IDs, distinct-window sample mass and rejected-update reasons. It must not carry raw histories, per-example labels or evaluator truth.
-- Any future hierarchy must preserve group mass, avoid duplicate RSU self-updates/child sample counts, handle empty groups without zero models, and equal flat FedAvg on identical updates in a hand-computed fixture.
+- Persistence and a pooled signal-aware Ridge non-neural reference are implemented and measured on v2_dev. The Ridge model is offline and pooled; it is not a federated result. Vehicle persistence remains unavailable rather than substituting evaluator truth.
+- Local training, pooled-central reference, flat FedAvg and hierarchical FedAvg are implemented. The user approved four persistent RSU learners (`rsu_N/E/S/W`), each trained only on its own approach's sensor windows pooled over training runs; each RSU learner update is counted once alongside vehicle child updates. The hierarchical smoke caps each RSU at 2,000 deterministic training windows.
+- Updates carry client/type, round and base-model versions/hash, feature-schema hash, tensor weights/signature, distinct-window sample count and allowlisted scalar training metadata. The validator rejects stale/wrong-round/incompatible/nonfinite/duplicate/late/zero-mass updates with reasons. Raw histories, features, per-example labels and evaluator truth are not update fields.
+- Flat and hierarchical aggregators preserve sample mass, reject duplicate self/child contributions, handle empty groups without zero models, and match on identical updates in hand-computed fixtures. Synthetic IID pooling is explicitly evaluator-only; transient participation runs are deterministic offline replay, not live connections.
 
-Do not treat these planned message types, model shapes, baselines or federation protocols as implemented until code and tests exist. Do not introduce trust/security fields as an implicit Phase 2 requirement.
+The live online participation demonstration, full-v2 model benchmark and final multi-seed baseline freeze remain open. Do not introduce trust/security fields as an implicit Phase 2 requirement.

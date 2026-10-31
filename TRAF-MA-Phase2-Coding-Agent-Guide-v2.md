@@ -12,7 +12,7 @@
 
 Before writing code, the coding agent must:
 
-1. Read this guide, `README.md`, `docs/ARCHITECTURE_AS_BUILT.md`, `docs/STATUS.md`, `docs/ARCHITECTURE.md`, all `configs/data_v2*.yaml`, `requirements-phase2.txt`, and the relevant implementation modules.
+1. Read this guide, `README.md`, `docs/ARCHITECTURE_AS_BUILT.md`, `docs/STATUS.md`, `docs/ARCHITECTURE.md`, all `configs/data_v2*.yaml`, and the relevant implementation modules.
 2. Read the maintained in-repository documents as design/evaluation guidance: `docs/IMPLEMENTATION_PLAN.md`, `docs/DATA_CONTRACTS.md`, `docs/DECISIONS.md`, `docs/EVALUATION.md`, `docs/PRD.md` and `docs/SOURCE_REVIEW.md`. They may contain stale decisions; compare claims with code and generated artifacts, then reconcile them rather than treating plans as current facts.
 3. Run the existing environment check and tests before changes:
    ```bash
@@ -432,7 +432,7 @@ trafma/
 
 - Keep `evaluator.py` and evaluator output isolated from live agents/features/inference.
 - Offline supervised training may read a separate labelled dataset interface that joins labels to input windows after feature construction. Do not import evaluator internals into live agent code.
-- Keep Phase 2 extras in `requirements-phase2.txt`; Phase 1 must remain runnable without PyTorch.
+- Use the already-installed Phase 2 packages; Phase 1 must remain runnable without PyTorch.
 - No external broker/database is required for the Phase 2 benchmark.
 
 ---

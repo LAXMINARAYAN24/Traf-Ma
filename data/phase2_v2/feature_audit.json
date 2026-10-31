@@ -1,0 +1,156 @@
+{
+  "availability_fraction": {
+    "rsu": {
+      "local_density_ratio": 1.0,
+      "local_halted_count_ratio": 1.0,
+      "local_mean_accel_mps2": 0.7963975694444444,
+      "local_mean_dist_to_stop_m": 0.7963975694444444,
+      "local_mean_speed_mps": 0.7963975694444444,
+      "local_mean_waiting_time_s": 0.7963975694444444,
+      "signal_green": 1.0,
+      "signal_red": 1.0,
+      "signal_remaining_s": 1.0,
+      "signal_yellow": 1.0
+    },
+    "vehicle": {
+      "local_density_ratio": 1.0,
+      "local_halted_count_ratio": 1.0,
+      "local_mean_accel_mps2": 1.0,
+      "local_mean_dist_to_stop_m": 1.0,
+      "local_mean_speed_mps": 1.0,
+      "local_mean_waiting_time_s": 1.0,
+      "signal_green": 0.5999431903516418,
+      "signal_red": 0.5999431903516418,
+      "signal_remaining_s": 0.0,
+      "signal_yellow": 0.5999431903516418
+    }
+  },
+  "available": {
+    "rsu": {
+      "local_density_ratio": 576000,
+      "local_halted_count_ratio": 576000,
+      "local_mean_accel_mps2": 458725,
+      "local_mean_dist_to_stop_m": 458725,
+      "local_mean_speed_mps": 458725,
+      "local_mean_waiting_time_s": 458725,
+      "signal_green": 576000,
+      "signal_red": 576000,
+      "signal_remaining_s": 576000,
+      "signal_yellow": 576000
+    },
+    "vehicle": {
+      "local_density_ratio": 4654139,
+      "local_halted_count_ratio": 4654139,
+      "local_mean_accel_mps2": 4654139,
+      "local_mean_dist_to_stop_m": 4654139,
+      "local_mean_speed_mps": 4654139,
+      "local_mean_waiting_time_s": 4654139,
+      "signal_green": 2792219,
+      "signal_red": 2792219,
+      "signal_remaining_s": 0,
+      "signal_yellow": 2792219
+    }
+  },
+  "broadcast_values": [
+    false
+  ],
+  "counts": {
+    "incoming_local_vehicle_records": 4654139,
+    "records": {
+      "rsu": 576000,
+      "vehicle": 5471540
+    },
+    "runs": 160,
+    "vehicle_records_outside_scope": 817401
+  },
+  "dataset_id": "phase2_v2",
+  "errors": [],
+  "feature_schema_hash": "46196acbcc933a9b60f0a3151cf3a5822350c6988b7894a50f5722ac80f4abe2",
+  "feature_schema_version": "trafma.features/1",
+  "passed": true,
+  "scanned": {
+    "rsu": 576000,
+    "vehicle": 4654139
+  },
+  "schema": {
+    "client_type": {
+      "rsu": [
+        0,
+        1
+      ],
+      "vehicle": [
+        1,
+        0
+      ]
+    },
+    "dimension": 22,
+    "masks": "One availability mask for each ordered value; all three signal masks match signal_state availability.",
+    "missing_value_policy": "Unavailable normalized values are 0 only when their mask is 0; measured zero has mask 1.",
+    "ordered_features": [
+      {
+        "name": "local_mean_speed_mps",
+        "normalization": "clip(value / configured max_speed_mps, 0, 1)",
+        "source": "RSU mean_speed_mps; vehicle speed and same-approach neighbour mean",
+        "unit": "m/s"
+      },
+      {
+        "name": "local_mean_accel_mps2",
+        "normalization": "clip(value / (2 * max(configured max_accel_mps2, max_decel_mps2)), -1, 1)",
+        "source": "RSU mean_accel_mps2; vehicle accel_mps2 proxy",
+        "unit": "m/s^2"
+      },
+      {
+        "name": "local_mean_dist_to_stop_m",
+        "normalization": "clip(value / configured arm_length_m, 0, 1)",
+        "source": "RSU mean_dist_to_stop_m; vehicle dist_to_stop_line_m proxy",
+        "unit": "m"
+      },
+      {
+        "name": "local_density_ratio",
+        "normalization": "clip(value, 0, 1)",
+        "source": "RSU vehicle_count / zone capacity; vehicle local count / clipped visible capacity",
+        "unit": "ratio"
+      },
+      {
+        "name": "local_halted_count_ratio",
+        "normalization": "clip(value, 0, 1)",
+        "source": "RSU halting_count / zone capacity; vehicle local halted count / clipped visible capacity",
+        "unit": "ratio"
+      },
+      {
+        "name": "local_mean_waiting_time_s",
+        "normalization": "clip(value / 300.0, 0, 1)",
+        "source": "RSU mean_waiting_time_s; vehicle waiting_time_s proxy",
+        "unit": "s"
+      },
+      {
+        "name": "signal_remaining_s",
+        "normalization": "clip(value / configured signal cycle seconds, 0, 1)",
+        "source": "Agent-local signal_remaining_s when present",
+        "unit": "s"
+      },
+      {
+        "name": "signal_red",
+        "normalization": "fixed R/Y/G one-hot",
+        "source": "Agent-local signal_state",
+        "unit": "one-hot"
+      },
+      {
+        "name": "signal_yellow",
+        "normalization": "fixed R/Y/G one-hot",
+        "source": "Agent-local signal_state",
+        "unit": "one-hot"
+      },
+      {
+        "name": "signal_green",
+        "normalization": "fixed R/Y/G one-hot",
+        "source": "Agent-local signal_state",
+        "unit": "one-hot"
+      }
+    ],
+    "sequence_length": 10,
+    "target_excluded": true,
+    "version": "trafma.features/1"
+  },
+  "split_overlap": []
+}

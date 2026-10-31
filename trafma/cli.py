@@ -1,7 +1,8 @@
-"""python -m trafma <command>   (doctor | build | simulate | collect | replay | inspect | gate | report)"""
+"""python -m trafma <command>   (doctor | build | simulate | collect | features-audit | baseline | replay | inspect | gate | report)"""
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -59,6 +60,37 @@ def main(argv=None) -> int:
     c.add_argument("--resume", action="store_true", help="skip runs that already have a manifest")
     c.add_argument("--jobs", type=int)
 
+    fa = sub.add_parser("features-audit", help="audit Phase 2 feature availability and split integrity")
+    fa.add_argument("--dataset", required=True, help="dataset directory containing dataset_manifest.json")
+    fa.add_argument("--output", help="audit JSON path (default: <dataset>/feature_audit.json)")
+
+    bl = sub.add_parser("baseline", help="fit and evaluate non-neural Phase 2 baselines")
+    bl.add_argument("--config", default="configs/learning.yaml")
+    bl.add_argument("--dataset", help="override the dataset directory in the learning config")
+
+    tr = sub.add_parser("train", help="train/evaluate a Phase 2 GRU model")
+    tr.add_argument("--config", default="configs/learning.yaml")
+    tr.add_argument("--method", choices=["central", "local"], default="central")
+    tr.add_argument("--dataset", help="override the dataset directory in the learning config")
+    tr.add_argument("--client", help="eligible training client ID; required for --method local")
+
+    fl = sub.add_parser("fedavg", help="run flat or hierarchical FedAvg trajectory replay")
+    fl.add_argument("--config", default="configs/learning.yaml")
+    fl.add_argument("--dataset", help="override the dataset directory in the learning config")
+    fl.add_argument("--hierarchical", action="store_true",
+                    help="enable vehicle-to-RSU aggregation and persistent RSU sensor learners")
+    fl.add_argument("--iid-control", action="store_true",
+                    help="run a synthetic IID control over the same selected natural client windows")
+    fl.add_argument("--transient-participation", action="store_true",
+                    help="replay deterministic vehicle arrivals/departures across rounds")
+
+    pr = sub.add_parser("phase2-report", help="generate a report from saved Phase 2 experiment artifacts")
+    pr.add_argument("--dataset", required=True, help="dataset directory containing dataset_manifest.json")
+    pr.add_argument("--baseline", required=True, help="saved non-neural baseline experiment directory")
+    pr.add_argument("--experiment", action="append", required=True,
+                    help="saved learning experiment directory; repeat for each method")
+    pr.add_argument("--output", help="new report directory (must not already exist)")
+
     r = sub.add_parser("replay", help="replay a saved run from its logs (no SUMO needed)")
     r.add_argument("--run", required=True)
     r.add_argument("--from", dest="t_from", type=float, default=0.0)
@@ -107,6 +139,69 @@ def main(argv=None) -> int:
         if a.cmd == "collect":
             from .collect import collect
             collect(a.config, resume=a.resume, jobs=a.jobs)
+            return 0
+        if a.cmd == "features-audit":
+            from .features import FeatureError, audit_dataset
+            try:
+                result = audit_dataset(a.dataset)
+                output = Path(a.output) if a.output else Path(a.dataset) / "feature_audit.json"
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
+            except FeatureError as e:
+                print(f"feature audit error: {e}", file=sys.stderr)
+                return 2
+            print(f"feature audit: {'PASS' if result['passed'] else 'FAIL'}")
+            print(f"records: RSU={result['counts']['records']['rsu']}, "
+                  f"vehicle={result['counts']['records']['vehicle']}, "
+                  f"incoming-local vehicle={result['counts']['incoming_local_vehicle_records']}")
+            print(f"schema SHA-256: {result['feature_schema_hash']}")
+            print(f"artifact: {output}")
+            if result["errors"]:
+                for error in result["errors"][:10]:
+                    print(f"  error: {error}", file=sys.stderr)
+            return 0 if result["passed"] else 1
+        if a.cmd == "baseline":
+            from .baseline import BaselineError, run_baselines
+            from .features import FeatureError
+            try:
+                output = run_baselines(a.config, a.dataset)
+            except (BaselineError, FeatureError) as e:
+                print(f"baseline error: {e}", file=sys.stderr)
+                return 2
+            print(f"baseline artifacts: {output}")
+            return 0
+        if a.cmd == "train":
+            from .baseline import BaselineError
+            from .training import TrainingError, run_gru_training
+            try:
+                output = run_gru_training(a.config, a.method, a.dataset, a.client)
+            except (BaselineError, TrainingError) as e:
+                print(f"training error: {e}", file=sys.stderr)
+                return 2
+            print(f"training artifacts: {output}")
+            return 0
+        if a.cmd == "fedavg":
+            from .baseline import BaselineError
+            from .training import TrainingError
+            from .federated_training import run_fedavg_training
+            try:
+                output = run_fedavg_training(
+                    a.config, a.dataset, hierarchy=a.hierarchical, iid_control=a.iid_control,
+                    transient_participation=a.transient_participation,
+                )
+            except (BaselineError, TrainingError) as e:
+                print(f"FedAvg error: {e}", file=sys.stderr)
+                return 2
+            print(f"FedAvg artifacts: {output}")
+            return 0
+        if a.cmd == "phase2-report":
+            from .phase2_report import ReportError, run_phase2_report
+            try:
+                output = run_phase2_report(a.dataset, a.baseline, a.experiment, a.output)
+            except ReportError as e:
+                print(f"Phase 2 report error: {e}", file=sys.stderr)
+                return 2
+            print(f"Phase 2 report artifacts: {output}")
             return 0
         if a.cmd == "replay":
             from .replay import replay_run

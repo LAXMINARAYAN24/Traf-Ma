@@ -11,7 +11,7 @@ vehicle agents (N)  --V2I-->  RSU-N / RSU-E / RSU-S / RSU-W  --I2C-->  edge coor
 
 This implements **Phase 1 (P1.1–P1.6)** of `TRAF_MA_imp_plan.pdf` and the SUMO-side **data generation of Phase 2 (P2.1)**.
 Per your instruction, the plan's "camera agents" are **RSUs**: one per road, placed beside the road at its stop line.
-It does *not* include model training / FedAvg / trust / attacks / dashboard (Phases 2.3+ and 3).
+Phase 2 now includes audited features, baselines, GRU training, offline flat and hierarchical FedAvg, replay controls, and saved-artifact reporting. Full-v2 model training, paired multi-seed evaluation, broad local-client evaluation and live online federation remain open; trust, attacks and the full dashboard are Phase 3.
 
 ## Quick start (Windows PowerShell or Linux/macOS)
 
@@ -28,15 +28,24 @@ python -m trafma replay --run runs/<run-id> --every 10        # replay from logs
 python -m trafma collect --config configs/data.yaml           # P2.1 labelled dataset v1 (24 runs, ~4 min)
 python -m trafma collect --config configs/data_v2_dev.yaml    # P2.1 dataset v2, dev size (48 runs, est. ~1.3 GB)
 python -m trafma collect --config configs/data_v2.yaml        # P2.1 dataset v2, full (160 runs, est. 4-5 GB; use --resume)
+python -m trafma features-audit --dataset data/phase2_v2_dev  # audit agent-local features and split integrity
+python -m trafma baseline --config configs/learning.yaml      # fit/evaluate clean non-neural baselines
+python -m trafma train --method central --config configs/learning.yaml
+python -m trafma train --method local --client asymmetric_ew_s100/rsu_E --config configs/learning.yaml
+python -m trafma fedavg --config configs/learning.yaml        # flat natural client cohort
+python -m trafma fedavg --iid-control --config configs/learning.yaml
+python -m trafma fedavg --transient-participation --config configs/learning.yaml
+python -m trafma fedavg --hierarchical --config configs/learning.yaml
+python -m trafma phase2-report --help                         # report saved baseline/experiment runs
 python -m trafma inspect --run runs/<run-id> --vehicle veh_0005   # one agent's local view + the path its reports took
 python -m trafma inspect --run runs/<run-id> --rsu E              # one RSU's view, signal and detected vehicles
-python -m pytest                                              # 126 tests
+python -m pytest                                              # run all tests
 ```
 `--gui` colours vehicles: **green** = inside its RSU zone, **red** = halted, **yellow** = approaching, **grey** = in junction / leaving.
 RSUs show as blue squares, RSU sensing zones as cyan strips on each incoming arm.
 Any config value can be overridden: `--set agents.rsu_zone_m=120 --set comms.v2i.loss_prob=0.1`.
 `--set agents.signal_broadcast=true` makes each RSU broadcast its road's signal state and time-to-change to its vehicles (default off).
-Pin: `requirements.txt` fixes SUMO/TraCI/sumolib to 1.28.0. Phase 2 extras (numpy, scikit-learn, torch): `pip install -r requirements-phase2.txt`.
+Pin: `requirements.txt` fixes SUMO/TraCI/sumolib to 1.28.0.
 
 ## What was built, per plan milestone
 
@@ -51,6 +60,7 @@ Pin: `requirements.txt` fixes SUMO/TraCI/sumolib to 1.28.0. Phase 2 extras (nump
 | P2.1 data + labels | `dataset.py`, `collect.py` | scenarios × seeds, 30 s-ahead labels, windows, coverage audit, label histograms, disjoint split manifest, measured non-IID skew |
 | P2 prep (schema 1.1) | `sensors.py`, `messages.py`, `configs/data_v2*.yaml` | RSU also reports `mean_accel_mps2` and `mean_dist_to_stop_m`; optional signal broadcast to vehicles; v2 dataset adds 2 demand levels, an E/W-heavy and a single-heavy-arm scenario; full grid has 10/5/5 seeds per scenario, dev grid 3/1/2 |
 | P1.6 inspector | `inspector.py` | `trafma inspect` prints one agent's local view and the vehicle → RSU → coordinator path of its reports, from saved logs |
+| P2.2-P2.7 development slice | `features.py`, `baseline.py`, `training.py`, `federation.py`, `federated_training.py`, `phase2_report.py` | Full v1/v2_dev/full-v2 feature audits; local/central GRU; flat and hierarchical FedAvg, IID and transient replay; saved Markdown/HTML report and plots. Full-v2 learning, paired seeds and online participation remain open. |
 
 ## The RSUs (one per road)
 

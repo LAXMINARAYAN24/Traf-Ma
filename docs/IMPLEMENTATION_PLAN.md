@@ -57,13 +57,15 @@ Read [data contracts](DATA_CONTRACTS.md) and [architecture](ARCHITECTURE.md) bef
 
 | Milestone | What to build, in order | Completion evidence |
 | --- | --- | --- |
-| P2.1 Data generation and labels | Generate free/moderate/heavy/asymmetric demand runs; store bounded local observations; evaluator generates future approach labels; freeze schema and split manifest | Coverage audit, valid future alignment, per-client label histograms and no train/test overlap |
-| P2.2 Baselines | Last-observation persistence, majority-class diagnostic, independent local model and pooled offline central reference | Common held-out evaluation rows and metric report; missing observation policy recorded |
-| P2.3 Local predictor | Audit raw vehicle/RSU logs, then validate/freeze candidate common 22-value input and implement its adapters → GRU with congestion and queue heads | Feature source/unit/missingness audit, correct shapes, finite losses, tiny-data overfit sanity check, then held-out per-approach/type results |
-| P2.4 Flat FedAvg reference | Identical global initialization; local train/update; sample-count weighted global model; versioned checkpoints | Hand-computed weighted-average fixture, dropped/empty client checks; local histories never enter live coordinator |
-| P2.5 Hierarchical FedAvg | Vehicles train locally; RSUs aggregate their assigned child updates. Whether an RSU is also a persistent independent learning client must be decided before implementation (see STATUS D4). | Group-mass weighting equals flat FedAvg on a fixed fixture; no equal weighting of unequal groups or double-counted updates |
-| P2.6 Non-IID and transient participation | Approach/demand/type/coverage skew, train/test clients, minimum history rule, round ownership snapshot, late arrivals/departures | Replay benchmark plus online participation demonstration; counts of trained/skipped/disconnected clients |
-| P2.7 Evaluate and freeze baseline | Compare local, central, IID flat FL, non-IID flat FL and hierarchical FL with matched budgets | Baseline checkpoints, curves, bytes/time logs and an honest interpretation of results |
+| P2.1 Data generation and labels | Generate free/moderate/heavy/asymmetric demand runs; store bounded local observations; evaluator generates future approach labels; freeze schema and split manifest | v1, v2_dev and full-v2 manifests and feature audits pass; feature/schema evidence in STATUS |
+| P2.2 Baselines | Last-observation persistence, pooled signal-aware Ridge, local-only GRU and pooled offline central reference | Saved matched-row dev report; broad per-client local baseline remains a follow-up |
+| P2.3 Local predictor | Audited common 22-value input; two-head GRU, queue and class output | Shapes, finite loss/gradients, checkpoints and held-out dev predictions saved |
+| P2.4 Flat FedAvg reference | Identical global initialization; local train/update; sample-count weighted global model; versioned checkpoints | Hand-computed weighting/rejection tests and 20-round natural/IID/transient dev artifacts |
+| P2.5 Hierarchical FedAvg | Vehicle clients route to original RSU; user-approved four persistent RSUs train on their own sensor-only windows and aggregate child updates | Group mass preserves flat equivalence; RSU self-update counted once; 20-round development artifact |
+| P2.6 Non-IID and transient participation | Synthetic IID control, natural client skew, deterministic per-round participation and offline vehicle replay | Label-distribution JS report, arrivals/departures and participation logs; live online demonstration remains open |
+| P2.7 Evaluate and freeze baseline | Saved Markdown/HTML report and plots for matched sampled dev rows | Reproducible report artifact and metrics; full-v2, paired multi-seed final freeze remains open |
+
+**Progress (2026-10-31):** v1, v2_dev and full-v2 feature audits pass. Local and central GRU, flat FedAvg, synthetic IID, transient offline participation and hierarchical FedAvg with the user-approved RSU learner role have development artifacts. A matched 10,000-row report includes Markdown/HTML, plots and label-skew analysis. See [Phase 2 implementation status](PHASE2_IMPLEMENTATION.md) for precise limitations.
 
 **Starting model defaults:** sample every 1 s; 10 observations per history; horizon 30 s; GRU hidden size 32; shared dense layer 16; three-class congestion head and nonnegative queue head; Adam learning rate 0.001; batch size 16; one local epoch; 20 federated rounds for the first benchmark. Loss = cross-entropy + MSE on queue normalized by approach capacity. These are versioned experimental defaults, tuned on validation data only.
 
@@ -115,15 +117,19 @@ Planning estimates, not deadlines: Phase 1 about 5–8 focused workdays; Phase 2
 
 If maintaining the earlier semester structure: odd semester = literature/architecture plus Phases 1–2; even semester = Phase 3 and final evaluation. The current three-phase build sequence governs implementation.
 
-## Intended command interface (not implemented yet)
+## Verified Phase 2 command interface
 
 ```powershell
 python -m trafma doctor
 python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --gui
 python -m trafma collect --config configs/data.yaml
-python -m trafma train --mode local --config configs/learning.yaml
-python -m trafma train --mode hierarchical --config configs/learning.yaml
-python -m trafma experiment --config configs/security.yaml
+python -m trafma train --method local --client asymmetric_ew_s100/rsu_E --config configs/learning.yaml
+python -m trafma train --method central --config configs/learning.yaml
+python -m trafma fedavg --config configs/learning.yaml
+python -m trafma fedavg --iid-control --config configs/learning.yaml
+python -m trafma fedavg --transient-participation --config configs/learning.yaml
+python -m trafma fedavg --hierarchical --config configs/learning.yaml
+python -m trafma phase2-report --dataset data/phase2_v2_dev --baseline runs/phase2/<baseline-run> --experiment runs/phase2/<experiment-run>
 python -m trafma replay --run runs/<run-id>
 python -m pytest
 ```
