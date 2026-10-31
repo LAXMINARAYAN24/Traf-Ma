@@ -1,0 +1,67 @@
+=== dataset report ===
+congestion rule : queue_zone/zone_len < 0.1 -> 0 free; < 0.35 -> 1 moderate; else 2 heavy
+horizon 30.0 s, history 10 steps, trainable if >= 16 windows
+
+run                      split    N  dep  arr unf coll rsuLogs
+asymmetric_ew_s100       train  260  260  214  46    0 ok
+asymmetric_ew_s101       train  260  260  203  57    0 ok
+asymmetric_ew_s102       train  260  260  206  54    0 ok
+asymmetric_ew_s200       val    260  254  197  57    0 ok
+asymmetric_ew_s300       test   260  260  207  53    0 ok
+asymmetric_ew_s301       test   260  260  208  52    0 ok
+asymmetric_s100          train  260  260  202  58    0 ok
+asymmetric_s101          train  260  260  208  52    0 ok
+asymmetric_s102          train  260  260  209  51    0 ok
+asymmetric_s200          val    260  260  219  41    0 ok
+asymmetric_s300          test   260  260  205  55    0 ok
+asymmetric_s301          test   260  260  223  37    0 ok
+free_s100                train   60   60   60   0    0 ok
+free_s101                train   60   60   60   0    0 ok
+free_s102                train   60   60   60   0    0 ok
+free_s200                val     60   60   60   0    0 ok
+free_s300                test    60   60   60   0    0 ok
+free_s301                test    60   60   60   0    0 ok
+heavy_s100               train  380  380  304  76    0 ok
+heavy_s101               train  380  380  298  82    0 ok
+heavy_s102               train  380  380  305  75    0 ok
+heavy_s200               val    380  380  300  80    0 ok
+heavy_s300               test   380  380  299  81    0 ok
+heavy_s301               test   380  380  303  77    0 ok
+light_moderate_s100      train  120  120  119   1    0 ok
+light_moderate_s101      train  120  120  120   0    0 ok
+light_moderate_s102      train  120  120  120   0    0 ok
+light_moderate_s200      val    120  120  120   0    0 ok
+light_moderate_s300      test   120  120  120   0    0 ok
+light_moderate_s301      test   120  120  120   0    0 ok
+moderate_heavy_s100      train  300  300  278  22    0 ok
+moderate_heavy_s101      train  300  300  282  18    0 ok
+moderate_heavy_s102      train  300  300  290  10    0 ok
+moderate_heavy_s200      val    300  300  271  29    0 ok
+moderate_heavy_s300      test   300  300  286  14    0 ok
+moderate_heavy_s301      test   300  300  294   6    0 ok
+moderate_s100            train  220  220  217   3    0 ok
+moderate_s101            train  220  220  220   0    0 ok
+moderate_s102            train  220  220  220   0    0 ok
+moderate_s200            val    220  220  218   2    0 ok
+moderate_s300            test   220  220  220   0    0 ok
+moderate_s301            test   220  220  219   1    0 ok
+single_arm_s100          train  200  200  181  19    0 ok
+single_arm_s101          train  200  200  171  29    0 ok
+single_arm_s102          train  200  200  191   9    0 ok
+single_arm_s200          val    200  200  171  29    0 ok
+single_arm_s300          test   200  200  184  16    0 ok
+single_arm_s301          test   200  200  179  21    0 ok
+
+split/client-type   clients trainable windows   label hist [free, moderate, heavy]
+test/rsu                 64        64   55104   [32457, 10587, 12060]
+test/vehicle           3600      3461  420753   [158424, 55952, 206377]
+train/rsu                96        96   82656   [48757, 16526, 17373]
+train/vehicle          5400      5176  621465   [235349, 88561, 297555]
+val/rsu                  32        32   27552   [16554, 5384, 5614]
+val/vehicle            1794      1706  196477   [75685, 28034, 92758]
+
+measured non-IID skew (train, trainable clients; TV distance of client label dist. to pooled):
+  rsu      n=96 mean TV 0.2869, max 0.4518, pooled [48757, 16526, 17373]
+  vehicle  n=5176 mean TV 0.2972, max 0.8573, pooled [232611, 88271, 297555]
+
+integrity: split overlap=none; window rule violations=0; evaluator keys in agent logs=none; complete RSU logs=True; collisions=0, teleports=0

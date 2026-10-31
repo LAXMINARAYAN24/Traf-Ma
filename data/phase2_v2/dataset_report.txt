@@ -1,0 +1,179 @@
+=== dataset report ===
+congestion rule : queue_zone/zone_len < 0.1 -> 0 free; < 0.35 -> 1 moderate; else 2 heavy
+horizon 30.0 s, history 10 steps, trainable if >= 16 windows
+
+run                      split    N  dep  arr unf coll rsuLogs
+asymmetric_ew_s100       train  260  260  214  46    0 ok
+asymmetric_ew_s101       train  260  260  203  57    0 ok
+asymmetric_ew_s102       train  260  260  206  54    0 ok
+asymmetric_ew_s103       train  260  260  206  54    0 ok
+asymmetric_ew_s104       train  260  260  210  50    0 ok
+asymmetric_ew_s105       train  260  260  212  48    0 ok
+asymmetric_ew_s106       train  260  260  207  53    0 ok
+asymmetric_ew_s107       train  260  259  197  62    0 ok
+asymmetric_ew_s108       train  260  260  200  60    0 ok
+asymmetric_ew_s109       train  260  248  200  48    0 ok
+asymmetric_ew_s200       val    260  254  197  57    0 ok
+asymmetric_ew_s201       val    260  255  199  56    0 ok
+asymmetric_ew_s202       val    260  260  199  61    0 ok
+asymmetric_ew_s203       val    260  259  196  63    0 ok
+asymmetric_ew_s204       val    260  260  200  60    0 ok
+asymmetric_ew_s300       test   260  260  207  53    0 ok
+asymmetric_ew_s301       test   260  260  208  52    0 ok
+asymmetric_ew_s302       test   260  260  202  58    0 ok
+asymmetric_ew_s303       test   260  255  194  61    0 ok
+asymmetric_ew_s304       test   260  260  197  63    0 ok
+asymmetric_s100          train  260  260  202  58    0 ok
+asymmetric_s101          train  260  260  208  52    0 ok
+asymmetric_s102          train  260  260  209  51    0 ok
+asymmetric_s103          train  260  260  201  59    0 ok
+asymmetric_s104          train  260  255  201  54    0 ok
+asymmetric_s105          train  260  260  206  54    0 ok
+asymmetric_s106          train  260  260  201  59    0 ok
+asymmetric_s107          train  260  260  199  61    0 ok
+asymmetric_s108          train  260  260  211  49    0 ok
+asymmetric_s109          train  260  259  204  55    0 ok
+asymmetric_s200          val    260  260  219  41    0 ok
+asymmetric_s201          val    260  260  200  60    0 ok
+asymmetric_s202          val    260  260  195  65    0 ok
+asymmetric_s203          val    260  260  208  52    0 ok
+asymmetric_s204          val    260  260  215  45    0 ok
+asymmetric_s300          test   260  260  205  55    0 ok
+asymmetric_s301          test   260  260  223  37    0 ok
+asymmetric_s302          test   260  260  202  58    0 ok
+asymmetric_s303          test   260  252  194  58    0 ok
+asymmetric_s304          test   260  260  205  55    0 ok
+free_s100                train   60   60   60   0    0 ok
+free_s101                train   60   60   60   0    0 ok
+free_s102                train   60   60   60   0    0 ok
+free_s103                train   60   60   60   0    0 ok
+free_s104                train   60   60   60   0    0 ok
+free_s105                train   60   60   60   0    0 ok
+free_s106                train   60   60   60   0    0 ok
+free_s107                train   60   60   60   0    0 ok
+free_s108                train   60   60   60   0    0 ok
+free_s109                train   60   60   60   0    0 ok
+free_s200                val     60   60   60   0    0 ok
+free_s201                val     60   60   59   1    0 ok
+free_s202                val     60   60   60   0    0 ok
+free_s203                val     60   60   60   0    0 ok
+free_s204                val     60   60   60   0    0 ok
+free_s300                test    60   60   60   0    0 ok
+free_s301                test    60   60   60   0    0 ok
+free_s302                test    60   60   60   0    0 ok
+free_s303                test    60   60   60   0    0 ok
+free_s304                test    60   60   60   0    0 ok
+heavy_s100               train  380  380  304  76    0 ok
+heavy_s101               train  380  380  298  82    0 ok
+heavy_s102               train  380  380  305  75    0 ok
+heavy_s103               train  380  380  298  82    0 ok
+heavy_s104               train  380  380  299  81    0 ok
+heavy_s105               train  380  380  300  80    0 ok
+heavy_s106               train  380  380  297  83    0 ok
+heavy_s107               train  380  377  296  81    0 ok
+heavy_s108               train  380  380  300  80    0 ok
+heavy_s109               train  380  380  297  83    0 ok
+heavy_s200               val    380  380  300  80    0 ok
+heavy_s201               val    380  380  296  84    0 ok
+heavy_s202               val    380  380  306  74    0 ok
+heavy_s203               val    380  380  303  77    0 ok
+heavy_s204               val    380  380  297  83    0 ok
+heavy_s300               test   380  380  299  81    0 ok
+heavy_s301               test   380  380  303  77    0 ok
+heavy_s302               test   380  380  294  86    0 ok
+heavy_s303               test   380  380  297  83    0 ok
+heavy_s304               test   380  380  302  78    0 ok
+light_moderate_s100      train  120  120  119   1    0 ok
+light_moderate_s101      train  120  120  120   0    0 ok
+light_moderate_s102      train  120  120  120   0    0 ok
+light_moderate_s103      train  120  120  120   0    0 ok
+light_moderate_s104      train  120  120  120   0    0 ok
+light_moderate_s105      train  120  120  120   0    0 ok
+light_moderate_s106      train  120  120  120   0    0 ok
+light_moderate_s107      train  120  120  120   0    0 ok
+light_moderate_s108      train  120  120  120   0    0 ok
+light_moderate_s109      train  120  120  120   0    0 ok
+light_moderate_s200      val    120  120  120   0    0 ok
+light_moderate_s201      val    120  120  118   2    0 ok
+light_moderate_s202      val    120  120  120   0    0 ok
+light_moderate_s203      val    120  120  120   0    0 ok
+light_moderate_s204      val    120  120  119   1    0 ok
+light_moderate_s300      test   120  120  120   0    0 ok
+light_moderate_s301      test   120  120  120   0    0 ok
+light_moderate_s302      test   120  120  120   0    0 ok
+light_moderate_s303      test   120  120  120   0    0 ok
+light_moderate_s304      test   120  120  120   0    0 ok
+moderate_heavy_s100      train  300  300  278  22    0 ok
+moderate_heavy_s101      train  300  300  282  18    0 ok
+moderate_heavy_s102      train  300  300  290  10    0 ok
+moderate_heavy_s103      train  300  300  282  18    0 ok
+moderate_heavy_s104      train  300  300  275  25    0 ok
+moderate_heavy_s105      train  300  300  284  16    0 ok
+moderate_heavy_s106      train  300  300  262  38    0 ok
+moderate_heavy_s107      train  300  300  281  19    0 ok
+moderate_heavy_s108      train  300  300  280  20    0 ok
+moderate_heavy_s109      train  300  300  281  19    0 ok
+moderate_heavy_s200      val    300  300  271  29    0 ok
+moderate_heavy_s201      val    300  300  274  26    0 ok
+moderate_heavy_s202      val    300  300  286  14    0 ok
+moderate_heavy_s203      val    300  300  277  23    0 ok
+moderate_heavy_s204      val    300  300  279  21    0 ok
+moderate_heavy_s300      test   300  300  286  14    0 ok
+moderate_heavy_s301      test   300  300  294   6    0 ok
+moderate_heavy_s302      test   300  300  279  21    0 ok
+moderate_heavy_s303      test   300  300  280  20    0 ok
+moderate_heavy_s304      test   300  300  275  25    0 ok
+moderate_s100            train  220  220  217   3    0 ok
+moderate_s101            train  220  220  220   0    0 ok
+moderate_s102            train  220  220  220   0    0 ok
+moderate_s103            train  220  220  217   3    0 ok
+moderate_s104            train  220  220  220   0    0 ok
+moderate_s105            train  220  220  220   0    0 ok
+moderate_s106            train  220  220  218   2    0 ok
+moderate_s107            train  220  220  220   0    0 ok
+moderate_s108            train  220  220  214   6    0 ok
+moderate_s109            train  220  220  215   5    0 ok
+moderate_s200            val    220  220  218   2    0 ok
+moderate_s201            val    220  220  214   6    0 ok
+moderate_s202            val    220  220  220   0    0 ok
+moderate_s203            val    220  220  220   0    0 ok
+moderate_s204            val    220  220  219   1    0 ok
+moderate_s300            test   220  220  220   0    0 ok
+moderate_s301            test   220  220  219   1    0 ok
+moderate_s302            test   220  220  219   1    0 ok
+moderate_s303            test   220  220  220   0    0 ok
+moderate_s304            test   220  220  215   5    0 ok
+single_arm_s100          train  200  200  181  19    0 ok
+single_arm_s101          train  200  200  171  29    0 ok
+single_arm_s102          train  200  200  191   9    0 ok
+single_arm_s103          train  200  200  180  20    0 ok
+single_arm_s104          train  200  200  181  19    0 ok
+single_arm_s105          train  200  200  172  28    0 ok
+single_arm_s106          train  200  200  177  23    0 ok
+single_arm_s107          train  200  200  177  23    0 ok
+single_arm_s108          train  200  200  174  26    0 ok
+single_arm_s109          train  200  197  164  33    0 ok
+single_arm_s200          val    200  200  171  29    0 ok
+single_arm_s201          val    200  200  170  30    0 ok
+single_arm_s202          val    200  200  188  12    0 ok
+single_arm_s203          val    200  199  166  33    0 ok
+single_arm_s204          val    200  200  182  18    0 ok
+single_arm_s300          test   200  200  184  16    0 ok
+single_arm_s301          test   200  200  179  21    0 ok
+single_arm_s302          test   200  200  180  20    0 ok
+single_arm_s303          test   200  200  179  21    0 ok
+single_arm_s304          test   200  200  181  19    0 ok
+
+split/client-type   clients trainable windows   label hist [free, moderate, heavy]
+test/rsu                160       160  137760   [82088, 26471, 29201]
+test/vehicle           8987      8607 1049725   [392184, 143696, 513845]
+train/rsu               320       320  275520   [163078, 53682, 58760]
+train/vehicle         17975     17209 2125165   [792575, 294898, 1037692]
+val/rsu                 160       160  137760   [83134, 26003, 28623]
+val/vehicle            8987      8550 1024717   [389562, 141568, 493587]
+
+measured non-IID skew (train, trainable clients; TV distance of client label dist. to pooled):
+  rsu      n=320 mean TV 0.2842, max 0.4488, pooled [163078, 53682, 58760]
+  vehicle  n=17209 mean TV 0.2927, max 0.861, pooled [783424, 294065, 1037606]
+
+integrity: split overlap=none; window rule violations=0; evaluator keys in agent logs=none; complete RSU logs=True; collisions=0, teleports=0
