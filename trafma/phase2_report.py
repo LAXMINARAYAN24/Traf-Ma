@@ -42,12 +42,90 @@ def _experiment_label(manifest: dict) -> str:
     if manifest.get("method") == "central_pooled_offline_gru":
         return "Central GRU"
     if manifest.get("hierarchical"):
-        return "Hierarchical FedAvg"
+        if manifest.get("rsu_self_update") is False:
+            return "Hierarchical FedAvg (RSU self-update off)"
+        return "Hierarchical FedAvg (RSU self-update on)"
     if manifest.get("iid_control"):
         return "Synthetic IID FedAvg"
     if manifest.get("transient_participation"):
         return "Transient FedAvg"
     return "Flat FedAvg (natural)"
+
+
+def _paired_statistics_section(summary: dict, dataset_id: str, test_runs: set[str]) -> tuple[list[str], str]:
+    if summary.get("dataset_id") != dataset_id:
+        raise ReportError("paired statistics dataset does not match the report dataset")
+    if set(summary.get("test_run_ids", [])) != test_runs:
+        raise ReportError("paired statistics held-out runs do not match the report test runs")
+    if summary.get("bootstrap", {}).get("unit") != (
+        "held-out test simulation run; overlapping windows are nested within each run"
+    ):
+        raise ReportError("paired statistics must bootstrap held-out simulation runs")
+
+    labels = {
+        "central_gru": "Central GRU",
+        "fedavg_iid": "Synthetic IID FedAvg",
+        "fedavg_natural": "Flat FedAvg (natural)",
+        "hierarchical_rsu_self_update_false": "Hierarchical FedAvg (RSU self-update off)",
+        "hierarchical_rsu_self_update_true": "Hierarchical FedAvg (RSU self-update on)",
+        "signal_aware_ridge": "Signal-aware Ridge",
+    }
+    run_metrics = summary.get("run_level_metrics", {})
+    markdown = [
+        "## Paired run-level uncertainty",
+        "",
+        f"Run-bootstrap 95% percentile confidence intervals use "
+        f"{summary['bootstrap']['replicates']} resamples over {len(test_runs)} held-out simulation runs "
+        f"(seed {summary['bootstrap']['seed']}); overlapping windows are not resampled independently.",
+        "",
+        "| Method | MAE (m), mean [95% CI] | RMSE (m), mean [95% CI] | Macro-F1, mean [95% CI] | Balanced accuracy, mean [95% CI] |",
+        "|---|---|---|---|---|",
+    ]
+    for method, metrics in sorted(run_metrics.items()):
+        cells = []
+        for metric in ("mae_m", "rmse_m", "macro_f1", "balanced_accuracy"):
+            result = metrics[metric]
+            cells.append(
+                f"{result['mean']:.4f} [{result['ci95_low']:.4f}, {result['ci95_high']:.4f}]"
+            )
+        markdown.append(f"| {labels.get(method, method)} | " + " | ".join(cells) + " |")
+    markdown.extend([
+        "",
+        "Paired differences are left minus right, averaged over training seeds within each held-out run. "
+        "An interval containing zero is not statistically distinguishable at the 0.05 level by this bootstrap.",
+        "",
+        "| Left | Right | Metric | Difference, mean [95% CI] | Test runs | Conclusion |",
+        "|---|---|---|---|---:|---|",
+    ])
+    paired_rows = []
+    for item in summary.get("paired_differences", []):
+        left = labels.get(item["left_method"], item["left_method"])
+        right = labels.get(item["right_method"], item["right_method"])
+        significant = bool(item["significant_at_0_05"])
+        conclusion = "significant" if significant else "not significant"
+        interval = (
+            f"{item['mean_difference']:.4f} "
+            f"[{item['ci95_low']:.4f}, {item['ci95_high']:.4f}]"
+        )
+        markdown.append(
+            f"| {left} | {right} | {item['metric']} | {interval} | {item['runs']} | {conclusion} |"
+        )
+        paired_rows.append(
+            "<tr>" + "".join(
+                f"<td>{html.escape(str(value))}</td>"
+                for value in (left, right, item["metric"], interval, item["runs"], conclusion)
+            ) + "</tr>"
+        )
+    html_section = (
+        "<h2>Paired run-level uncertainty</h2>"
+        f"<p>Run-bootstrap 95% percentile intervals use {summary['bootstrap']['replicates']} "
+        f"resamples over {len(test_runs)} held-out runs, not overlapping windows.</p>"
+        "<table><thead><tr><th>Left</th><th>Right</th><th>Metric</th>"
+        "<th>Difference, mean [95% CI]</th><th>Runs</th><th>Conclusion</th></tr></thead><tbody>"
+        + "".join(paired_rows)
+        + "</tbody></table>"
+    )
+    return markdown, html_section
 
 
 def _matched_baseline_metrics(predictions_path: Path, test_keys: set[tuple]) -> dict:
@@ -126,6 +204,174 @@ def _training_label_skew(dataset_manifest: dict) -> dict:
             for key, hist in sorted(grouped.items())
         }
     return {"global_train_label_hist": global_hist, "groups": result}
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percentile
+    lower, upper = math.floor(position), math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    fraction = position - lower
+    return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
+
+
+def _client_distribution_summary(clients: list[dict]) -> dict:
+    windows = [float(client["windows"]) for client in clients]
+    divergences = [float(client["jsd_bits"]) for client in clients]
+    if not clients:
+        return {"clients": 0, "windows": 0, "median_windows": None, "iqr_windows": None,
+                "p90_windows": None, "median_jsd_bits": None, "iqr_jsd_bits": None,
+                "p90_jsd_bits": None, "label_hist": [0, 0, 0]}
+    return {
+        "clients": len(clients),
+        "windows": sum(int(client["windows"]) for client in clients),
+        "median_windows": _percentile(windows, 0.5),
+        "iqr_windows": _percentile(windows, 0.75) - _percentile(windows, 0.25),
+        "p90_windows": _percentile(windows, 0.9),
+        "median_jsd_bits": _percentile(divergences, 0.5),
+        "iqr_jsd_bits": _percentile(divergences, 0.75) - _percentile(divergences, 0.25),
+        "p90_jsd_bits": _percentile(divergences, 0.9),
+        "label_hist": [
+            sum(int(client["label_hist"][index]) for client in clients)
+            for index in range(3)
+        ],
+    }
+
+
+def _manifest_histogram(histogram: dict) -> list[int]:
+    return [int(histogram.get(str(index), histogram.get(index, 0))) for index in range(3)]
+
+
+def _client_label_distribution_analysis(dataset_manifest: dict, experiments: list[dict]) -> dict:
+    dataset_clients = dataset_manifest.get("clients", {})
+    eligible = [
+        (client_id, client) for client_id, client in dataset_clients.items()
+        if client.get("split") == "train" and client.get("trainable")
+    ]
+    global_hist = [
+        sum(int(client.get("label_hist", [0, 0, 0])[index]) for _, client in eligible)
+        for index in range(3)
+    ]
+    natural_clients = []
+    for client_id, client in sorted(eligible):
+        histogram = [int(value) for value in client.get("label_hist", [0, 0, 0])]
+        natural_clients.append({
+            "client_id": client_id,
+            "client_type": client["type"],
+            "approach": client["approach"],
+            "scenario": client["scenario"],
+            "windows": int(client["windows"]),
+            "label_hist": histogram,
+            "jsd_bits": _jensen_shannon(histogram, global_hist),
+        })
+
+    grouped = {}
+    for dimension, key in (
+        ("client_type", "client_type"),
+        ("approach", "approach"),
+        ("scenario", "scenario"),
+    ):
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for client in natural_clients:
+            groups[client[key]].append(client)
+        grouped[dimension] = {
+            name: _client_distribution_summary(values)
+            for name, values in sorted(groups.items())
+        }
+
+    natural_runs = [
+        item for item in experiments
+        if item["manifest"].get("method") == "flat_sample_weighted_fedavg"
+        and not item["manifest"].get("hierarchical")
+        and not item["manifest"].get("iid_control")
+        and not item["manifest"].get("transient_participation")
+    ]
+    iid_runs = [item for item in experiments if item["manifest"].get("iid_control")]
+    iid_comparisons = []
+    for iid_item in iid_runs:
+        iid_manifest = iid_item["manifest"]
+        source_ids = iid_manifest.get("source_trajectory_client_ids") or []
+        natural_item = next((
+            item for item in natural_runs
+            if item["manifest"].get("seed") == iid_manifest.get("seed")
+            and item["manifest"].get("cohort_seed") == iid_manifest.get("cohort_seed")
+            and set(item["manifest"].get("selected_client_ids", [])) == set(source_ids)
+        ), None)
+        if natural_item is None or not source_ids:
+            continue
+
+        natural_manifest = natural_item["manifest"]
+        natural_counts = natural_manifest.get("selected_client_label_counts", {})
+        iid_counts = iid_manifest.get("selected_client_label_counts", {})
+        if not natural_counts:
+            natural_counts = {
+                client_id: {
+                    str(index): int(value)
+                    for index, value in enumerate(dataset_clients[client_id]["label_hist"])
+                }
+                for client_id in source_ids if client_id in dataset_clients
+            }
+        if set(natural_counts) != set(source_ids) or not iid_counts:
+            continue
+        natural_entries = []
+        for client_id in sorted(source_ids):
+            histogram = _manifest_histogram(natural_counts[client_id])
+            metadata = dataset_clients[client_id]
+            natural_entries.append({
+                "client_id": client_id,
+                "client_type": metadata["type"],
+                "approach": metadata["approach"],
+                "scenario": metadata["scenario"],
+                "windows": sum(histogram),
+                "label_hist": histogram,
+            })
+        iid_entries = []
+        for client_id, counts in sorted(iid_counts.items()):
+            histogram = _manifest_histogram(counts)
+            iid_entries.append({
+                "client_id": client_id,
+                "client_type": "synthetic_iid",
+                "approach": "mixed",
+                "scenario": "mixed",
+                "windows": sum(histogram),
+                "label_hist": histogram,
+            })
+        natural_pool = [
+            sum(client["label_hist"][index] for client in natural_entries)
+            for index in range(3)
+        ]
+        iid_pool = [
+            sum(client["label_hist"][index] for client in iid_entries)
+            for index in range(3)
+        ]
+        if natural_pool != iid_pool:
+            raise ReportError(
+                f"natural and IID training cohorts differ for seed {iid_manifest.get('seed')}"
+            )
+        for client in natural_entries:
+            client["jsd_bits"] = _jensen_shannon(client["label_hist"], natural_pool)
+        for client in iid_entries:
+            client["jsd_bits"] = _jensen_shannon(client["label_hist"], iid_pool)
+        iid_comparisons.append({
+            "training_seed": iid_manifest.get("seed"),
+            "cohort_seed": iid_manifest.get("cohort_seed"),
+            "source_client_ids": sorted(source_ids),
+            "pooled_label_hist": natural_pool,
+            "natural_selected_clients": natural_entries,
+            "iid_partitions": iid_entries,
+            "natural_summary": _client_distribution_summary(natural_entries),
+            "iid_summary": _client_distribution_summary(iid_entries),
+        })
+
+    return {
+        "divergence_metric": "Jensen-Shannon divergence in bits (base 2) from the corresponding pooled class distribution",
+        "natural_train_client_count": len(natural_clients),
+        "global_train_label_hist": global_hist,
+        "natural_train_clients": natural_clients,
+        "natural_group_summaries": grouped,
+        "matched_natural_vs_iid_cohorts": iid_comparisons,
+    }
 
 
 def _write_plots(dataset_dir: Path, experiments: list[dict], output_dir: Path,
@@ -405,7 +651,8 @@ def _write_plots(dataset_dir: Path, experiments: list[dict], output_dir: Path,
 
 def run_phase2_report(dataset: Union[str, Path], baseline_run: Union[str, Path],
                       experiment_runs: list[Union[str, Path]],
-                      output: Optional[Union[str, Path]] = None) -> Path:
+                      output: Optional[Union[str, Path]] = None,
+                      statistics_run: Optional[Union[str, Path]] = None) -> Path:
     """Build Markdown/HTML and plots using only immutable saved experiment outputs."""
     dataset_dir = Path(dataset)
     baseline_dir = Path(baseline_run)
@@ -446,16 +693,35 @@ def run_phase2_report(dataset: Union[str, Path], baseline_run: Union[str, Path],
     if ridge is None or ridge["n"] != len(key_sets[0]):
         raise ReportError("signal-aware Ridge baseline does not cover the global-model test rows")
 
+    dataset_manifest = json.loads((dataset_dir / "dataset_manifest.json").read_text(encoding="utf-8"))
+    statistics_path = Path(statistics_run) if statistics_run is not None else None
+    statistics_markdown = []
+    statistics_html = ""
+    if statistics_path is not None:
+        statistics_summary_path = statistics_path / "summary.json"
+        if not statistics_summary_path.is_file():
+            raise ReportError(f"paired statistics summary not found: {statistics_summary_path}")
+        statistics_summary = json.loads(statistics_summary_path.read_text(encoding="utf-8"))
+        test_runs = {key[0] for key in key_sets[0]}
+        statistics_markdown, statistics_html = _paired_statistics_section(
+            statistics_summary,
+            str(dataset_manifest.get("dataset_id", dataset_dir.name)),
+            test_runs,
+        )
+
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     output_dir = Path(output) if output else Path("runs/phase2") / f"report_phase2_{timestamp}"
     if output_dir.exists():
         raise ReportError(f"report output already exists: {output_dir}")
     output_dir.mkdir(parents=True)
-    dataset_manifest = json.loads((dataset_dir / "dataset_manifest.json").read_text(encoding="utf-8"))
     label_skew = _training_label_skew(dataset_manifest)
+    client_distributions = _client_label_distribution_analysis(dataset_manifest, experiments)
     plot_names = _write_plots(dataset_dir, experiments, output_dir, matched_baseline, label_skew)
     (output_dir / "label_skew.json").write_text(
         json.dumps(label_skew, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    (output_dir / "client_label_distributions.json").write_text(
+        json.dumps(client_distributions, indent=2, sort_keys=True), encoding="utf-8"
     )
 
     comparison = [
@@ -510,6 +776,9 @@ def run_phase2_report(dataset: Union[str, Path], baseline_run: Union[str, Path],
             f"## {item['label']} breakdown",
             "",
         ])
+        if statistics_markdown:
+            markdown.extend(statistics_markdown)
+            markdown.append("")
         for dimension, title in (
             ("by_scenario", "Scenario"),
             ("by_approach", "Approach"),
@@ -537,7 +806,7 @@ def run_phase2_report(dataset: Union[str, Path], baseline_run: Union[str, Path],
         "- Local-only results use held-out rows matched on the selected client's type and approach, not the global-model test cohort; do not compare the local aggregate as if rows were identical.",
         "- Moderate-class recall, class support, and confusion matrices are retained in each `metrics.json`; a zero moderate recall is a material negative result, not an omitted metric.",
         "- Communication bytes are the implementation's JSON model-payload sizes, not measured network traffic. Wall-clock times are from the recorded CPU environment.",
-        "- No live online federation, radio/network performance, formal privacy guarantee, or attack/trust behavior is measured by these Phase 2 experiments.",
+        "- The optional live online federation path is smoke-tested separately; this offline report does not measure live learning performance, radio/network behavior, a formal privacy guarantee, or attack/trust behavior.",
         "",
         "## Generated figures",
         "",
@@ -557,6 +826,50 @@ def run_phase2_report(dataset: Union[str, Path], baseline_run: Union[str, Path],
             for key, value in groups.items()
         )
         markdown.append("")
+    markdown.extend([
+        "## Per-client label and sample distributions",
+        "",
+        f"Per-client records for all {client_distributions['natural_train_client_count']} eligible natural training clients are saved in `client_label_distributions.json`. The declared divergence is base-2 Jensen-Shannon divergence in bits from the applicable pooled class distribution. `p90` is the worst-decile threshold, not a maximum.",
+        "",
+    ])
+    for dimension, groups in client_distributions["natural_group_summaries"].items():
+        markdown.extend([
+            f"### Natural clients by {dimension.replace('_', ' ')}",
+            "",
+            "| Group | Clients | Windows | Median windows (IQR; p90) | Median JSD (IQR; p90), bits | Label histogram [free, moderate, heavy] |",
+            "|---|---:|---:|---|---|---|",
+        ])
+        for name, summary in groups.items():
+            markdown.append(
+                f"| {name} | {summary['clients']} | {summary['windows']} "
+                f"| {summary['median_windows']:.1f} ({summary['iqr_windows']:.1f}; {summary['p90_windows']:.1f}) "
+                f"| {summary['median_jsd_bits']:.6f} ({summary['iqr_jsd_bits']:.6f}; {summary['p90_jsd_bits']:.6f}) "
+                f"| {summary['label_hist']} |"
+            )
+        markdown.append("")
+    comparisons = client_distributions["matched_natural_vs_iid_cohorts"]
+    if comparisons:
+        markdown.extend([
+            "### Matched selected natural clients versus synthetic IID partitions",
+            "",
+            "These rows compare the same selected natural training windows before and after the synthetic IID partition. They describe class-distribution homogenization; they do not establish an accuracy benefit.",
+            "",
+            "| Training seed | Natural clients | IID partitions | Natural median JSD (p90) | IID median JSD (p90) |",
+            "|---:|---:|---:|---:|---:|",
+        ])
+        markdown.extend(
+            f"| {item['training_seed']} | {item['natural_summary']['clients']} "
+            f"| {item['iid_summary']['clients']} "
+            f"| {item['natural_summary']['median_jsd_bits']:.6f} ({item['natural_summary']['p90_jsd_bits']:.6f}) "
+            f"| {item['iid_summary']['median_jsd_bits']:.6f} ({item['iid_summary']['p90_jsd_bits']:.6f}) |"
+            for item in comparisons
+        )
+        markdown.append("")
+    else:
+        markdown.extend([
+            "No matched natural/IID training-cohort artifacts were supplied, so no IID divergence comparison is reported.",
+            "",
+        ])
     markdown.extend(f"- `plots/{name}`" for name in plot_names)
     markdown.extend(["", "## Input experiment artifacts", ""])
     markdown.extend(
@@ -593,7 +906,7 @@ def run_phase2_report(dataset: Union[str, Path], baseline_run: Union[str, Path],
         "<p class=\"warning\">Development results use overlapping windows; they are descriptive and not independent-run confidence estimates.</p>"
         "<table><thead><tr><th>Method</th><th>N</th><th>Queue MAE (m)</th><th>Queue RMSE (m)</th>"
         "<th>Macro-F1</th><th>Balanced accuracy</th></tr></thead><tbody>"
-        f"{html_rows}</tbody></table><h2>Figures</h2>{figure_html}"
+        f"{html_rows}</tbody></table>{statistics_html}<h2>Figures</h2>{figure_html}"
         f"<h2>Interpretation limits</h2><pre>{html.escape(chr(10).join(markdown[markdown.index('## Interpretation limits') + 2:]))}</pre>"
         "</body></html>"
     )
@@ -614,8 +927,12 @@ def run_phase2_report(dataset: Union[str, Path], baseline_run: Union[str, Path],
         "dataset": str(dataset_dir),
         "baseline_run": str(baseline_dir),
         "experiment_runs": [str(item["path"]) for item in experiments],
+        "statistics_run": str(statistics_path) if statistics_path is not None else None,
         "matched_test_rows": len(key_sets[0]),
         "input_sha256": input_hashes,
+        "statistics_summary_sha256": (
+            _sha256(statistics_path / "summary.json") if statistics_path is not None else None
+        ),
         "plot_files": plot_names,
         "report_started_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
     }, indent=2, sort_keys=True), encoding="utf-8")

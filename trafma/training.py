@@ -31,6 +31,9 @@ class TrainingError(ValueError):
     """Raised when a configured training experiment cannot be completed safely."""
 
 
+RESERVED_TRAINING_SEEDS = frozenset(range(400, 405))
+
+
 def _validate_training(config: dict) -> dict:
     training = config.get("training")
     if not isinstance(training, dict):
@@ -56,8 +59,15 @@ def _validate_training(config: dict) -> dict:
         value = training.get(key)
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise TrainingError(f"training.{key} must be a positive integer")
-    if training.get("device") != "cpu":
-        raise TrainingError("the current Phase 2 training runner supports the configured CPU device only")
+    if training["seed"] in RESERVED_TRAINING_SEEDS:
+        raise TrainingError("training.seed 400-404 are reserved and must remain unused")
+    device = training.get("device")
+    if device not in ("cpu", "cuda"):
+        raise TrainingError("training.device must be 'cpu' or 'cuda'")
+    if device == "cuda" and not torch.cuda.is_available():
+        raise TrainingError(
+            "training.device=cuda was requested, but this PyTorch installation has no available CUDA device"
+        )
     if not isinstance(training.get("deterministic"), bool):
         raise TrainingError("training.deterministic must be boolean")
     if training["regression_loss_weight"] == 0 and training["classification_loss_weight"] == 0:
@@ -78,15 +88,39 @@ def _seed_everything(seed: int, deterministic: bool):
 def _sample_windows(dataset_dir: Path, split: str, maximum: int, seed: int,
                     client_type: Optional[str] = None,
                     client_ids: Optional[set[str]] = None,
-                    approach: Optional[str] = None) -> list[FeatureWindow]:
-    """Deterministic reservoir sample bounded in memory."""
+                    approach: Optional[str] = None,
+                    scenario: Optional[str] = None,
+                    per_run_maximum: Optional[int] = None) -> list[FeatureWindow]:
+    """Deterministic reservoir sample, optionally balancing the cap across runs."""
     rng = random.Random(seed)
     selected: list[FeatureWindow] = []
     seen = 0
+    by_run: dict[str, list[FeatureWindow]] = {}
+    seen_by_run: dict[str, int] = {}
+    rng_by_run: dict[str, random.Random] = {}
     for sample in iter_feature_windows(
         dataset_dir, split=split, client_type=client_type, client_ids=client_ids,
         approach_filter=approach,
     ):
+        if scenario is not None and sample.scenario != scenario:
+            continue
+        if per_run_maximum is not None:
+            run_selected = by_run.setdefault(sample.run_id, [])
+            run_seen = seen_by_run.get(sample.run_id, 0) + 1
+            seen_by_run[sample.run_id] = run_seen
+            run_rng = rng_by_run.setdefault(
+                sample.run_id,
+                random.Random(int.from_bytes(
+                    hashlib.sha256(f"{seed}:{sample.run_id}".encode()).digest()[:4], "big"
+                )),
+            )
+            if len(run_selected) < per_run_maximum:
+                run_selected.append(sample)
+            else:
+                index = run_rng.randrange(run_seen)
+                if index < per_run_maximum:
+                    run_selected[index] = sample
+            continue
         seen += 1
         if len(selected) < maximum:
             selected.append(sample)
@@ -94,6 +128,11 @@ def _sample_windows(dataset_dir: Path, split: str, maximum: int, seed: int,
             index = rng.randrange(seen)
             if index < maximum:
                 selected[index] = sample
+    if per_run_maximum is not None:
+        return [
+            sample for run_id in sorted(by_run)
+            for sample in sorted(by_run[run_id], key=lambda row: (row.client_id, row.end_t))
+        ]
     return selected
 
 
@@ -115,6 +154,10 @@ def _loss_for(model, batches, training, optimizer=None):
     context = torch.enable_grad() if train_mode else torch.no_grad()
     with context:
         for features, queue_ratio, labels in batches:
+            device = next(model.parameters()).device
+            features = features.to(device)
+            queue_ratio = queue_ratio.to(device)
+            labels = labels.to(device)
             outputs = model(features)
             loss, components = multitask_loss(
                 outputs,
@@ -146,13 +189,14 @@ def _loss_for(model, batches, training, optimizer=None):
 
 def _train_model(training, train_samples, val_samples):
     _seed_everything(int(training["seed"]), bool(training["deterministic"]))
+    device = torch.device(str(training["device"]))
     model = GRUPredictor(
         input_size=FEATURE_DIM,
         hidden_size=int(training["hidden_size"]),
         num_layers=int(training["layers"]),
         dropout=float(training["dropout"]),
         shared_size=int(training["shared_size"]),
-    )
+    ).to(device)
     train_loader = DataLoader(
         _to_dataset(train_samples),
         batch_size=int(training["batch_size"]),
@@ -237,6 +281,7 @@ def _predict(model, samples: list[FeatureWindow], batch_size: int):
     model.eval()
     with torch.no_grad():
         for features, _queue_ratios, _labels in loader:
+            features = features.to(next(model.parameters()).device)
             started = time.perf_counter()
             output = model(features)
             per_sample_latency.append((time.perf_counter() - started) / len(features))
@@ -262,16 +307,34 @@ def _repo_state() -> dict:
 
 def run_gru_training(config_path: Union[str, Path], method: str = "central",
                      dataset_override: Optional[str] = None,
-                     client_id: Optional[str] = None) -> Path:
+                     client_id: Optional[str] = None,
+                     training_seed: Optional[int] = None) -> Path:
     """Train a central pooled GRU or one explicit offline trajectory-client GRU."""
     if method not in ("central", "local"):
         raise TrainingError("method must be central or local")
     if method == "local" and not client_id:
         raise TrainingError("local training requires --client with an eligible training client ID")
+    local_client_id = client_id if method == "local" else None
+    client_type = None
+    approach = None
     if method == "central" and client_id:
         raise TrainingError("--client is only valid with --method local")
     config = load_learning_config(config_path)
+    if training_seed is not None:
+        if isinstance(training_seed, bool) or not isinstance(training_seed, int):
+            raise TrainingError("training_seed must be an integer")
+        config["training"]["seed"] = training_seed
     training = _validate_training(config)
+    evaluation_seed = config.get("evaluation_seed", training["seed"])
+    if isinstance(evaluation_seed, bool) or not isinstance(evaluation_seed, int):
+        raise TrainingError("evaluation_seed must be an integer")
+    evaluation_windows_per_run = config.get("evaluation_windows_per_run")
+    if evaluation_windows_per_run is not None and (
+        isinstance(evaluation_windows_per_run, bool)
+        or not isinstance(evaluation_windows_per_run, int)
+        or evaluation_windows_per_run < 1
+    ):
+        raise TrainingError("evaluation_windows_per_run must be a positive integer")
     dataset_dir = Path(dataset_override or config["dataset"])
     manifest_path = dataset_dir / "dataset_manifest.json"
     if not manifest_path.is_file():
@@ -281,32 +344,37 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
     start_utc = dt.datetime.now(dt.timezone.utc)
     wall_started = time.perf_counter()
     if method == "local":
-        client = dataset_manifest.get("clients", {}).get(client_id)
+        assert local_client_id is not None
+        client = dataset_manifest.get("clients", {}).get(local_client_id)
         if client is None or client.get("split") != "train" or not client.get("trainable"):
-            raise TrainingError(f"local client must be an eligible training client: {client_id!r}")
+            raise TrainingError(f"local client must be an eligible training client: {local_client_id!r}")
         if client.get("windows", 0) < int(config["baseline"]["minimum_client_windows"]):
-            raise TrainingError(f"local client is below the minimum-window eligibility rule: {client_id!r}")
+            raise TrainingError(f"local client is below the minimum-window eligibility rule: {local_client_id!r}")
         client_type = client["type"]
         approach = client["approach"]
         train_samples = _sample_windows(
             dataset_dir, "train", int(training["max_train_windows"]), int(training["seed"]),
-            client_type=client_type, client_ids={client_id},
+            client_type=client_type, client_ids={local_client_id},
         )
         val_samples = _sample_windows(
-            dataset_dir, "val", int(training["max_validation_windows"]), int(training["seed"]) + 1,
-            client_type=client_type, approach=approach,
+            dataset_dir, "val", int(training["max_validation_windows"]), evaluation_seed + 1,
+            client_type=client_type, approach=approach, scenario=client["scenario"],
+            per_run_maximum=evaluation_windows_per_run,
         )
         test_samples = _sample_windows(
-            dataset_dir, "test", int(training["max_validation_windows"]), int(training["seed"]) + 2,
-            client_type=client_type, approach=approach,
+            dataset_dir, "test", int(training["max_validation_windows"]), evaluation_seed + 2,
+            client_type=client_type, approach=approach, scenario=client["scenario"],
+            per_run_maximum=evaluation_windows_per_run,
         )
     else:
         train_samples = _sample_windows(dataset_dir, "train", int(training["max_train_windows"]),
                                         int(training["seed"]))
         val_samples = _sample_windows(dataset_dir, "val", int(training["max_validation_windows"]),
-                                      int(training["seed"]) + 1)
+                                      evaluation_seed + 1,
+                                      per_run_maximum=evaluation_windows_per_run)
         test_samples = _sample_windows(dataset_dir, "test", int(training["max_validation_windows"]),
-                                       int(training["seed"]) + 2)
+                                       evaluation_seed + 2,
+                                       per_run_maximum=evaluation_windows_per_run)
     if not train_samples or not val_samples or not test_samples:
         raise TrainingError("train, validation and test splits must each contain sampled windows")
     if set(sample.run_id for sample in train_samples) & set(sample.run_id for sample in val_samples + test_samples):
@@ -316,7 +384,10 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
     model, history, best_epoch = _train_model(training, train_samples, val_samples)
     training_duration = time.perf_counter() - train_started
     output_root = Path(config["output_dir"])
-    experiment_id = f"{method}_gru_{dataset_dir.name}_{start_utc.strftime('%Y%m%dT%H%M%SZ')}"
+    experiment_id = (
+        f"{method}_gru_{dataset_dir.name}_seed{training['seed']}_"
+        f"{start_utc.strftime('%Y%m%dT%H%M%SZ')}"
+    )
     output_dir = output_root / experiment_id
     if output_dir.exists():
         raise TrainingError(f"experiment output already exists: {output_dir}")
@@ -336,6 +407,7 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
         "best_epoch": best_epoch,
     }, checkpoint_path)
     checkpoint_hash = hashlib.sha256(checkpoint_path.read_bytes()).hexdigest()
+    device = torch.device(str(training["device"]))
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     if checkpoint.get("feature_schema_hash") != FEATURE_SCHEMA_HASH:
         raise TrainingError("saved checkpoint feature schema does not match the current adapter")
@@ -343,6 +415,7 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
     model_config.pop("sequence_length")
     loaded_model = GRUPredictor(**model_config)
     loaded_model.load_state_dict(checkpoint["model_state_dict"], strict=True)
+    loaded_model.to(device)
     validation_queue, validation_classes, validation_latency = _predict(
         loaded_model, val_samples, int(training["batch_size"])
     )
@@ -399,10 +472,20 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "cpu": {"processor": platform.processor(), "logical_cores": os.cpu_count()},
-        "device": "cpu",
+        "device": str(device),
+        "cuda": (
+            {
+                "name": torch.cuda.get_device_name(device.index or 0),
+                "index": device.index,
+                "torch_version": torch.__version__,
+                "cuda_version": torch.version.cuda,
+            }
+            if device.type == "cuda" else None
+        ),
         "code_commit": repo["commit"],
         "code_worktree_dirty": repo["worktree_dirty"],
         "seed": training["seed"],
+        "evaluation_seed": evaluation_seed,
         "deterministic_algorithms": training["deterministic"],
         "checkpoint_sha256": checkpoint_hash,
         "best_epoch": best_epoch,

@@ -4,7 +4,7 @@
 
 This document records the current data contract plus clearly marked Phase 2 proposals. When sources disagree, follow executable code and tests, then generated run artifacts/manifests, then `docs/ARCHITECTURE_AS_BUILT.md` and `docs/STATUS.md`. The original architecture, plans and research materials are design history, not evidence that a feature exists.
 
-Phase 1 simulation, agent logs and P2.1 labels are implemented. `trafma.features/1`, the two-head GRU, local/central training, flat and hierarchical FedAvg, synthetic IID control, and transient offline participation replay are implemented. Full v1, v2_dev and v2 feature audits pass with one shared feature-schema hash. Phase 2 evaluation artifacts and remaining limits are recorded in `docs/STATUS.md`.
+Phase 1 simulation, agent logs and P2.1 labels are implemented. `trafma.features/1`, the two-head GRU, local/central training, flat and hierarchical FedAvg, synthetic IID control, transient offline participation replay, and an optional smoke-tested live federation path are implemented. Full v1, v2_dev and v2 feature audits pass with one shared feature-schema hash. Phase 2 evaluation artifacts and remaining limits are recorded in `docs/STATUS.md`.
 
 ## Current simulation and observation contract
 
@@ -33,7 +33,7 @@ Run folders contain agent-local logs, message/transport traces, simulator traces
 - Congestion class is derived from `zone_queue_m / zone_m`: class 0 free below 0.10; class 1 moderate from 0.10 to below 0.35; class 2 heavy at or above 0.35. These are current configured thresholds, not the older 0.2/0.5 proposal.
 - Input windows use 10 consecutive 1-second records from one client, run and approach. RSU windows require consecutive RSU records; vehicle windows require all records to have `scope = incoming_local`. Windows never cross runs. Splits are assigned by whole run.
 - Current minimum eligibility is 16 valid windows per client, as used in dataset manifests.
-- Labels are produced offline from evaluator truth and are not present in agent input records. Live inference must not access future labels or evaluator truth.
+- Labels are produced by the evaluator and are not present in agent input records. Offline datasets store them separately. In live mode, inference never reads evaluator truth; the runner releases only the matured `end_t + 30 s` target to the owning client's local training cache. Live federation is a simulation/evaluation hook, not a privacy guarantee.
 
 ## Generated dataset evidence (checked 2026-10-31)
 
@@ -91,4 +91,4 @@ Full RSU-log audit: all `rsu_*.jsonl` records in generated v1, v2_dev and v2 dat
 - Updates carry client/type, round and base-model versions/hash, feature-schema hash, tensor weights/signature, distinct-window sample count and allowlisted scalar training metadata. The validator rejects stale/wrong-round/incompatible/nonfinite/duplicate/late/zero-mass updates with reasons. Raw histories, features, per-example labels and evaluator truth are not update fields.
 - Flat and hierarchical aggregators preserve sample mass, reject duplicate self/child contributions, handle empty groups without zero models, and match on identical updates in hand-computed fixtures. Synthetic IID pooling is explicitly evaluator-only; transient participation runs are deterministic offline replay, not live connections.
 
-The live online participation demonstration, full-v2 model benchmark and final multi-seed baseline freeze remain open. Do not introduce trust/security fields as an implicit Phase 2 requirement.
+The live online participation path is smoke-tested but has no performance or network-behavior claim. Full-v2 learned-method evaluation, paired five-seed comparisons, population-wide local-client results and the final report remain open. Do not introduce trust/security fields as an implicit Phase 2 requirement.

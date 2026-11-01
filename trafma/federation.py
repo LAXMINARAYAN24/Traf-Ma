@@ -200,8 +200,11 @@ def aggregate_hierarchical(
     round_id: int,
     model_version: int,
     deadline_s: float,
+    rsu_self_update: bool = True,
 ) -> AggregationResult:
     """Aggregate vehicle and independent RSU sensor updates at their RSU group, then globally."""
+    if not isinstance(rsu_self_update, bool):
+        raise ValueError("rsu_self_update must be boolean")
     started = time.perf_counter()
     group_updates = {f"rsu_{approach}": [] for approach in APPROACHES}
     materialized = list(updates)
@@ -216,6 +219,9 @@ def aggregate_hierarchical(
             routed_updates.append(update)
             continue
         if update.client_type == "rsu" and update.client_id == update.group_id:
+            if not rsu_self_update:
+                route_rejections[update.client_id] = "rsu_self_update_disabled"
+                continue
             routed_updates.append(update)
             continue
         if update.client_type == "rsu":

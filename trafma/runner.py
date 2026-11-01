@@ -9,7 +9,7 @@ import traceback
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Protocol
 
 from . import APPROACHES, __version__
 from .agents import AgentRegistry, COORDINATOR_ID
@@ -32,6 +32,16 @@ class RunResult:
     run_dir: Path
     status: str
     manifest: dict
+
+
+class LiveFederationHooks(Protocol):
+    def start(self, run_id: str, run_dir: Path, config: dict, topology_path: Path) -> None: ...
+    def on_vehicle_departure(self, vehicle_id: str, approach: str, now: float) -> None: ...
+    def on_vehicle_arrival(self, vehicle_id: str, now: float) -> None: ...
+    def observe(self, client_id: str, now: float, view: dict) -> None: ...
+    def release_matured_labels(self, now: float, truth: dict) -> None: ...
+    def run_due_rounds(self, now: float) -> None: ...
+    def close(self) -> dict: ...
 
 
 def _make_run_id(cfg: Config) -> str:
@@ -79,7 +89,8 @@ def _parse_tripinfo(p: Path) -> dict:
             "mean_time_loss_s": avg(f("timeLoss")), "max_depart_delay_s": max(f("departDelay"), default=None)}
 
 
-def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False) -> RunResult:
+def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False,
+                   live_federation: Optional[LiveFederationHooks] = None) -> RunResult:
     cfg.validate()
     gui = cfg.run.gui if gui is None else gui
     run_id = _make_run_id(cfg)
@@ -123,6 +134,7 @@ def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False)
     report_every = max(int(round(cfg.run.report_step_s / cfg.run.step_s)), 1)
     step_i = 0
     last_snapshot = None
+    live_summary = None
 
     def trace_msg(now, ev, env_d, frm, to, link, reason=None, exception=False):
         rec = {"t": now, "ev": ev, "msg": env_d.get("msg_id") if isinstance(env_d, dict) else str(env_d),
@@ -137,6 +149,8 @@ def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False)
             disp[mid] = val
 
     try:
+        if live_federation is not None:
+            live_federation.start(run_id, run_dir, cfg.to_dict(), topo_path)
         world.start(gui=gui)
         say(f"[trafma] run {run_id}: N={cfg.run.vehicles} seed={cfg.run.seed} "
             f"{'GUI' if gui else 'headless'} SUMO {world.sumo_version}")
@@ -158,8 +172,12 @@ def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False)
                     origin = spec.origin
                 registry.on_depart(vid, origin, now)
                 departed_ids.add(vid)
+                if live_federation is not None:
+                    live_federation.on_vehicle_departure(vid, origin, now)
                 log.event({"t": now, "ev": "depart", "vid": vid, "origin": origin})
             for vid in events.arrived:
+                if live_federation is not None:
+                    live_federation.on_vehicle_arrival(vid, now)
                 registry.on_arrive(vid, now)
                 log.close_agent(vid)
                 log.event({"t": now, "ev": "arrive", "vid": vid})
@@ -176,6 +194,8 @@ def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False)
                     view = rsu_view(snap, topo, a, cfg)
                     detected = view.pop("_detected")
                     env = rsu.summarise(view, now)
+                    if live_federation is not None:
+                        live_federation.observe(rsu.id, now, view)
                     log.agent(rsu.id, {"t": now, "kind": "observation", "view": env.payload, "detected": detected,
                                        "msg_id": env.msg_id})
                     cnt["rsu_summaries_sent"] += 1
@@ -192,6 +212,8 @@ def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False)
                     view = vehicle_view(snap, topo, vid, agent.origin, cfg)
                     if view is None:
                         continue
+                    if live_federation is not None:
+                        live_federation.observe(vid, now, view)
                     env = agent.report(view, now)
                     log.agent(vid, {"t": now, "kind": "observation", "parent": agent.parent,
                                     "view": env.payload, "msg_id": env.msg_id})
@@ -261,6 +283,9 @@ def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False)
                 log.glob(last_snapshot)
                 tr = world_truth(snap, topo, cfg)
                 log.truth({"t": now, "approaches": tr})
+                if live_federation is not None:
+                    live_federation.release_matured_labels(now, tr)
+                    live_federation.run_due_rounds(now)
                 for a in APPROACHES:
                     ta = truth_acc[a]
                     ta["n"] += 1
@@ -292,6 +317,8 @@ def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False)
         manifest["traceback"] = traceback.format_exc()
     finally:
         world.close()
+        if live_federation is not None:
+            live_summary = live_federation.close()
         log.close()
 
     # ------------------------------------------------ finalise
@@ -330,6 +357,11 @@ def run_simulation(cfg: Config, gui: Optional[bool] = None, quiet: bool = False)
                              for a, t in truth_acc.items()},
         "message_trace_lines": log.n_msg_lines,
     })
+    if live_summary is not None and live_summary.get("enabled"):
+        manifest["online_federation"] = live_summary
+        manifest["files"]["online_federation_sha256"] = sha256_path(
+            run_dir / "online_federation.jsonl"
+        )
     manifest["files"]["messages_sha256"] = sha256_path(run_dir / "messages.jsonl")
     if last_snapshot is not None:
         (run_dir / "global_snapshot_final.json").write_text(
@@ -370,4 +402,12 @@ def format_summary(m: dict) -> str:
     for a, s in m["approach_summary"].items():
         L.append(f"   {a}: mean {s['mean_zone_queue_m']} / obs {s['mean_rsu_observed_queue_m']}, max {s['max_zone_queue_m']}")
     L.append(f"trace sha256      : {m['trace_sha256'][:16]}...")
+    if m.get("online_federation"):
+        online = m["online_federation"]
+        L.append(
+            f"live federation   : {online['rounds']} rounds, "
+            f"{online['vehicle_round_participants']} vehicle and "
+            f"{online['rsu_round_participants']} RSU client-rounds; "
+            f"simulated and wall time recorded separately"
+        )
     return "\n".join(L)

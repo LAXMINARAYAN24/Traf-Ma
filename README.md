@@ -11,7 +11,7 @@ vehicle agents (N)  --V2I-->  RSU-N / RSU-E / RSU-S / RSU-W  --I2C-->  edge coor
 
 This implements **Phase 1 (P1.1–P1.6)** of `TRAF_MA_imp_plan.pdf` and the SUMO-side **data generation of Phase 2 (P2.1)**.
 Per your instruction, the plan's "camera agents" are **RSUs**: one per road, placed beside the road at its stop line.
-Phase 2 now includes audited features, baselines, GRU training, offline flat and hierarchical FedAvg, replay controls, and saved-artifact reporting. Full-v2 model training, paired multi-seed evaluation, broad local-client evaluation and live online federation remain open; trust, attacks and the full dashboard are Phase 3.
+Phase 2 includes audited features, baselines, GRU training, offline flat and hierarchical FedAvg, replay controls, saved-artifact reporting, paired full-v2 evaluation, an all-eligible-client local-evaluation workflow, and an optional live SUMO federation path. Trust, attacks and the full dashboard are Phase 3.
 
 ## Quick start (Windows PowerShell or Linux/macOS)
 
@@ -36,7 +36,14 @@ python -m trafma fedavg --config configs/learning.yaml        # flat natural cli
 python -m trafma fedavg --iid-control --config configs/learning.yaml
 python -m trafma fedavg --transient-participation --config configs/learning.yaml
 python -m trafma fedavg --hierarchical --config configs/learning.yaml
+python -m trafma fedavg --hierarchical --rsu-self-update false --config configs/learning.yaml
 python -m trafma phase2-report --help                         # report saved baseline/experiment runs
+python -m trafma phase2-stats --help                          # paired run-level bootstrap after five seeds/method
+.\scripts\run_phase2_full_v2_sweep.ps1                        # resumable local full-v2 five-seed sweep
+python -m trafma phase2-local-eval --help                     # all-eligible-client local GRU evaluator
+# add --device cuda for a CUDA-enabled PyTorch installation
+python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --duration 180 --online-federation
+.\scripts\demo_phase2_live.ps1                                 # repeatable live-federation smoke demo
 python -m trafma inspect --run runs/<run-id> --vehicle veh_0005   # one agent's local view + the path its reports took
 python -m trafma inspect --run runs/<run-id> --rsu E              # one RSU's view, signal and detected vehicles
 python -m pytest                                              # run all tests
@@ -60,7 +67,7 @@ Pin: `requirements.txt` fixes SUMO/TraCI/sumolib to 1.28.0.
 | P2.1 data + labels | `dataset.py`, `collect.py` | scenarios × seeds, 30 s-ahead labels, windows, coverage audit, label histograms, disjoint split manifest, measured non-IID skew |
 | P2 prep (schema 1.1) | `sensors.py`, `messages.py`, `configs/data_v2*.yaml` | RSU also reports `mean_accel_mps2` and `mean_dist_to_stop_m`; optional signal broadcast to vehicles; v2 dataset adds 2 demand levels, an E/W-heavy and a single-heavy-arm scenario; full grid has 10/5/5 seeds per scenario, dev grid 3/1/2 |
 | P1.6 inspector | `inspector.py` | `trafma inspect` prints one agent's local view and the vehicle → RSU → coordinator path of its reports, from saved logs |
-| P2.2-P2.7 development slice | `features.py`, `baseline.py`, `training.py`, `federation.py`, `federated_training.py`, `phase2_report.py` | Full v1/v2_dev/full-v2 feature audits; local/central GRU; flat and hierarchical FedAvg, IID and transient replay; saved Markdown/HTML report and plots. Full-v2 learning, paired seeds and online participation remain open. |
+| P2.2-P2.7 development slice | `features.py`, `baseline.py`, `training.py`, `federation.py`, `federated_training.py`, `phase2_report.py` | Full v1/v2_dev/full-v2 feature audits; local/central GRU; flat and hierarchical FedAvg, IID and transient replay; saved Markdown/HTML report and plots. Full-v2 five-seed methods, paired run-level statistics and report are complete; the all-eligible-client local-only evaluation remains open. |
 
 ## The RSUs (one per road)
 
@@ -75,6 +82,7 @@ Pin: `requirements.txt` fixes SUMO/TraCI/sumolib to 1.28.0.
 `agents/rsu_*.jsonl`, `agents/veh_*.jsonl` (agent-local views only) · `messages.jsonl` (send/deliver/reject trace) · `trace.jsonl` (deterministic per-step vehicle state; its SHA-256 is the reproducibility fingerprint) ·
 `global_snapshots.jsonl`, `global_snapshot_final.json` · `evaluator/truth.jsonl`, `evaluator/events.jsonl` (ground truth, **never** in agent logs).
 A finished example is in `examples/demo_n20_s42/` (incl. `gate.txt`, `report/*.png`).
+The live-federation option writes `online_federation.jsonl` and per-round checkpoints beside the ordinary SUMO logs.
 
 ## Defaults are editable defaults, not findings
 

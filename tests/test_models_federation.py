@@ -140,6 +140,31 @@ def test_hierarchical_fedavg_counts_persistent_rsu_sensor_update_once():
     assert result.serialized_bytes["misidentified_rsu"] > 0
 
 
+def test_hierarchical_fedavg_without_rsu_self_updates_matches_flat():
+    base = {"weight": np.array([0.0], dtype=np.float64)}
+    vehicle_updates = [
+        _update("vehicle_n", {"weight": np.array([2.0])}, base, n=2, group_id="rsu_N"),
+        _update("vehicle_e", {"weight": np.array([8.0])}, base, n=6, group_id="rsu_E"),
+    ]
+    disabled_rsu = _update(
+        "rsu_N", {"weight": np.array([100.0])}, base, n=20,
+        client_type="rsu", group_id="rsu_N",
+    )
+
+    flat = aggregate_flat(
+        vehicle_updates, base, round_id=3, model_version=7, deadline_s=10.0
+    )
+    result = aggregate_hierarchical(
+        [*vehicle_updates, disabled_rsu], base, round_id=3, model_version=7,
+        deadline_s=10.0, rsu_self_update=False,
+    )
+
+    np.testing.assert_allclose(result.tensors["weight"], flat.tensors["weight"], rtol=0, atol=1e-12)
+    assert result.sample_mass == flat.sample_mass == 8
+    assert result.accepted_clients == ["vehicle_n", "vehicle_e"]
+    assert result.rejected_clients["rsu_N"] == "rsu_self_update_disabled"
+
+
 def test_synthetic_iid_partition_balances_class_distribution_deterministically():
     samples = [
         FeatureWindow(

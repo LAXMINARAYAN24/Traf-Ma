@@ -1,22 +1,22 @@
 # Status and decisions
 
-Updated: 2026-10-31. "Verified" is backed by a run/test/artifact; outstanding Phase 2 items are explicitly listed.
+Updated: 2026-11-01. "Verified" is backed by a run/test/artifact; outstanding Phase 2 items are explicitly listed.
 
 ## Where the project is
 
 - **Phase 1 (P1.1-P1.6): functionally complete.** One gate item is still open: `simulate --gui` has only been verified under a virtual display, not on a real desktop.
 - **P2.1 (data and labels): done.** The v1, v2 development and full v2 datasets are present locally and their manifests pass the listed integrity checks. The signal-broadcast dataset has a config only and has not been generated.
-- **P2.2 (baselines):** persistence and train-only pooled signal-aware Ridge are implemented; an explicit local GRU and pooled central GRU have saved development results.
+- **P2.2 (baselines):** persistence and train-only pooled signal-aware Ridge are implemented; v2_dev and full-v2 baseline artifacts are saved. All five full-v2 learned methods have five seeds, and paired run-level statistics are saved.
 - **P2.3 (features/model):** `trafma.features/1` and the two-head GRU are implemented. The full v1, v2_dev and v2 feature scans pass with the same schema hash.
 - **P2.4-P2.5 (federation):** flat FedAvg, four-group hierarchical FedAvg, persistent RSU sensor learners and synthetic IID control are implemented and have saved v2_dev runs. D4 is resolved below.
-- **P2.6-P2.7:** natural non-IID and transient offline participation experiments plus a saved-artifact Markdown/HTML report and plots are implemented. The online live-participation demo, full-v2 model benchmark, paired multi-seed evaluation and final report freeze remain open.
+- **P2.6-P2.7:** natural non-IID and transient offline participation experiments plus a saved-artifact Markdown/HTML report and plots are implemented. Per-client natural/IID distributions, paired run-level statistics, an optional live SUMO federation path, a repeatable Windows smoke-demo script, and a resumable all-eligible-client local evaluator are implemented. Full-v2 learned-method evaluation and the paired report are complete; the population local-evaluation run remains open.
 
-## Previously verified implementation checks (Linux, Python 3.12, SUMO/traci/sumolib 1.28.0, one core)
+## Previously verified implementation checks
 
 | Check | Result |
 |---|---|
-| Current full suite (`.venv\Scripts\python.exe -m pytest -q`, Windows) | 150 passed in 36.77 s |
-| `python -m trafma doctor` (Windows, Python 3.12.7) | READY; SUMO 1.27.1, TraCI/sumolib 1.28.0 |
+| Current full suite (`.venv\Scripts\python.exe -m pytest -q`, Windows) | 165 passed in 41.46 s |
+| Current `python -m trafma doctor` (Windows, Python 3.12.7) | READY; SUMO 1.27.1, TraCI/sumolib 1.28.0 |
 | Pre-Phase-2 `python -m pytest` | 126 passed |
 | New focused feature/baseline tests | 8 passed |
 | `simulate --vehicles 20 --seed 42` trace SHA-256 | `e2c4145f...`, identical to `examples/demo_n20_s42`, with and without `agents.signal_broadcast` |
@@ -24,7 +24,7 @@ Updated: 2026-10-31. "Verified" is backed by a run/test/artifact; outstanding Ph
 | `trafma collect --config configs/data.yaml` | `dataset_report.txt` identical to the committed one |
 | Real SUMO run of the 4 new v2 scenarios (1 train, 1 val, 1 test seed each, 16 runs) | all ran to the end of the 900 s (over-saturated scenarios finish with unfinished vehicles reported, not as completed), 0 collisions, 0 teleports, integrity block clean, new RSU fields present in logs |
 
-Not verified: GUI on a real desktop, live online federated participation, full-v2 model training, paired multi-seed comparisons and the final baseline freeze.
+Not verified: GUI on a real desktop and population-wide local-client results. The live path is smoke-tested only and does not establish performance or radio/network behavior.
 
 ## Data and feature re-audit (2026-10-31)
 
@@ -73,7 +73,42 @@ Artifacts:
 - Baseline with the majority-class diagnostic: `runs/phase2/baseline_phase2_v2_dev_20261031T123905Z/`
 - Latest matched report: `runs/phase2/report_phase2_20261031T123953Z/`
 
-Verification after this implementation: the full suite passes, 150 tests. Full model learning on v1/full v2, paired multi-seed comparisons, broader local-client evaluation, and the live online demonstration remain open.
+Current verification: the full suite passed 165 tests in 41.46 s; report integration tests, the regenerated full-v2 report, and a one-client local-evaluator smoke/resume run are verified. The all-eligible-client local-only benchmark remains open.
+
+### Full-v2 baseline and live-federation smoke (2026-10-31)
+
+The completed baseline artifact is `runs/phase2/baseline_phase2_v2_20261031T164408Z/`. Its signal-aware Ridge test predictions cover 1,187,485 overlapping windows: MAE 35.1973 m, RMSE 43.8793 m, macro-F1 0.4891, balanced accuracy 0.5489. The train-only majority diagnostic has macro-F1 0.2092 / balanced accuracy 0.3333. Persistence is available for 137,760 RSU rows only (MAE 28.1297 m, RMSE 48.0169 m, macro-F1 0.5266); it is not a matched comparison to Ridge's all-client population. These are descriptive window metrics, not run-bootstrap estimates.
+
+The full-v2 sweep completed for seeds 20261031-20261035 across central GRU, natural flat FedAvg, synthetic IID FedAvg, and hierarchical FedAvg with RSU self-updates on and off. The paired-statistics artifact `runs/phase2/stats_phase2_v2_20261031T182654Z/` verifies 10,240 identical held-out test rows per seed across 40 runs; it reports per-seed and per-run metrics, run-bootstrap 95% intervals (10,000 resamples), and paired differences. Its run-level estimates and interpretation are summarized below.
+
+The final matched comparison report is `runs/phase2/report_phase2_v2_final_20261101T0012Z/`. Detailed breakdowns and plots use one representative seed per method; its paired uncertainty section uses all five seeds. The full-v2 per-client distribution file includes all 17,529 eligible training clients; the matched natural-vs-IID cohort contains 16 source clients.
+
+No long-running training jobs are intended to remain active. For local reproduction, `.\scripts\run_phase2_full_v2_sweep.ps1` skips completed runs and regenerates paired statistics. Seeds 400-404 remain unused. The all-eligible-client local-only evaluation remains open and is not included in the report.
+
+The repeatable script was run successfully at `runs/phase2/phase2_live_demo_20261031_225007_34344/`: 180 simulated seconds, three accepted rounds, model version 3, 12 vehicle client-round participations, four RSU self-updates per round, and a valid manifest hash for `online_federation.jsonl`. No departed vehicle participated in a later round. The run is a smoke test, not a performance claim.
+
+### Full-v2 paired evaluation and final report (2026-11-01)
+
+All five learned methods have five training seeds (20261031-20261035) and identical 10,240-row test cohorts spanning 40 held-out runs. The 10,000-replicate percentile bootstrap resamples runs, not overlapping windows; each run's method score is averaged over its five training seeds.
+
+| Method | Run-macro MAE (m), mean [95% CI] | Run-macro RMSE (m), mean [95% CI] | Macro-F1, mean [95% CI] | Balanced accuracy, mean [95% CI] |
+|---|---|---|---|---|
+| Signal-aware Ridge | 29.1487 [25.6708, 32.4885] | 36.4090 [32.6259, 40.1145] | 0.4191 [0.3979, 0.4402] | 0.5188 [0.4980, 0.5403] |
+| Central GRU | 29.6892 [26.1924, 33.1270] | 36.5848 [32.4769, 40.4018] | 0.4890 [0.4573, 0.5193] | 0.5332 [0.5137, 0.5502] |
+| Natural flat FedAvg | 61.7315 [59.5552, 63.8186] | 65.2688 [63.7148, 66.7525] | 0.1490 [0.1348, 0.1625] | 0.3063 [0.2895, 0.3226] |
+| Synthetic IID FedAvg | 60.0319 [58.0437, 61.9253] | 63.6031 [62.1511, 64.9735] | 0.1611 [0.1348, 0.1872] | 0.2794 [0.2414, 0.3153] |
+| Hierarchical FedAvg (RSU self-update on) | 45.0405 [41.1465, 48.7605] | 52.0662 [48.6697, 55.4376] | 0.2867 [0.2705, 0.3027] | 0.3808 [0.3692, 0.3928] |
+| Hierarchical FedAvg (RSU self-update off) | 61.3314 [59.1904, 63.3396] | 64.8682 [63.3144, 66.3355] | 0.1546 [0.1404, 0.1678] | 0.3083 [0.2921, 0.3238] |
+
+Central GRU vs Ridge was not significant for RMSE (difference +0.1758 m, 95% CI [-0.3866, 0.7455]) or balanced accuracy (+0.0144, [-0.0101, 0.0378]); central GRU had higher MAE by 0.5405 m and higher macro-F1 by 0.0699. IID vs natural FedAvg was not significant for macro-F1 (+0.0121, [-0.0017, 0.0247]); IID vs hierarchical self-update-off was not significant for macro-F1 (+0.0065, [-0.0071, 0.0198]). Other reported paired intervals excluded zero. The pairwise tests are unadjusted for multiple comparisons, so interpret them as exploratory.
+
+For the matched natural/IID training cohort (16 clients), median/p90 per-client JSD from the pooled label distribution was 0.081104/0.316248 bits for natural clients and 0.000002/0.000012 for IID partitions. The selected IID control homogenized class proportions; this does not demonstrate an accuracy gain. Per-client label/sample counts cover all 17,529 eligible natural training clients.
+
+Artifacts: paired results at `runs/phase2/stats_phase2_v2_20261031T182654Z/`; final Markdown/HTML report and plots at `runs/phase2/report_phase2_v2_final_20261101T0012Z/`. Detailed method breakdowns use one representative seed; paired uncertainty uses all five seeds. The all-client local-only model evaluation is not included.
+
+### Broad local-only evaluator
+
+The population evaluator is implemented as `python -m trafma phase2-local-eval`. It enumerates the 17,529 eligible training clients (320 RSU and 17,209 vehicle) and records ineligible train clients with explicit reasons. Results append to `clients.jsonl`, retain one model artifact per completed client under `models/`, and can resume with `--resume`; `summary.json` and `metrics.csv` provide client-type, approach and scenario distributions. A capped CPU run completed for 1,000 selected clients at `runs/phase2/local_population_phase2_v2/`: 1,000 completed, 0 failed, 766 ineligible records, and 16,529 eligible clients not selected due to the cap. All 1,000 checkpoints loaded successfully with PyTorch and all referenced JSON/CSV artifacts parsed successfully. This is a capped, lexicographically selected subset (all rows are from `asymmetric_ew`), not a population-wide local-client accuracy claim.
 
 ## Implemented Phase 1 changes recorded on 2026-10-30
 
@@ -92,7 +127,7 @@ Verification after this implementation: the full suite passes, 150 tests. Full m
 | D2 | Signal state + time-to-change broadcast to vehicles is a config flag, default off; compare settings only in a matched ablation | Flag implemented; ablation dataset not generated |
 | D3 | The signal stays an environment controller, not an agent | Current implementation fact |
 | D4 | RSU learning clients: four persistent identities (`rsu_N/E/S/W`) each train only on that approach's own sensor windows pooled across training runs; each self-update is counted once alongside vehicle child updates | Approved by the user for P2.5; implemented with 2,000 sampled training windows per RSU and group-mass FedAvg |
-| D5 | Vehicle independent-local baseline (B1) on a stratified sample (about 40 per approach) | Proposed for P2.2/P2.3 |
+| D5 | Independent local-only benchmark (B1) for every eligible training client, including all four RSUs and every vehicle client with at least 16 windows; list ineligible clients and counts | Required by the user's Phase 2 completion scope; evaluator and full results remain open |
 | D6 | v2 uses 10/5/5 train/validation/test seeds per scenario; v2_dev uses 3/1/2 | Configs and generated datasets verified; seed reservation for Phase 3 is a plan, not an implemented calibration set |
 | D7 | Per-client window cap or stride | Flat natural replay is uncapped for the selected cohort; hierarchical persistent RSU learners use a deterministic 2,000-window cap, recorded in each run manifest. |
 | D8 | Sensor noise | Deferred to Phase 3 |

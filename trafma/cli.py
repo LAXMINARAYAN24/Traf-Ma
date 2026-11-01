@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from .config import ConfigError, load_config, parse_set_overrides
+from .config import Config, ConfigError, load_config, parse_set_overrides
 
 
 def _cfg_from_args(a) -> "Config":
@@ -54,6 +54,10 @@ def main(argv=None) -> int:
     s.add_argument("--profile", choices=["balanced", "asymmetric", "custom"])
     s.add_argument("--run-id"); s.add_argument("--output-dir")
     s.add_argument("--quiet", action="store_true")
+    s.add_argument("--online-federation", action="store_true",
+                   help="enable live SUMO client learning at simulated-time round boundaries")
+    s.add_argument("--learning-config", default="configs/learning.yaml",
+                   help="Phase 2 learning/federation config for the live demo")
 
     c = sub.add_parser("collect", help="P2.1: generate labelled multi-scenario data from SUMO")
     c.add_argument("--config", required=True)
@@ -73,6 +77,7 @@ def main(argv=None) -> int:
     tr.add_argument("--method", choices=["central", "local"], default="central")
     tr.add_argument("--dataset", help="override the dataset directory in the learning config")
     tr.add_argument("--client", help="eligible training client ID; required for --method local")
+    tr.add_argument("--training-seed", type=int, help="override the model/shuffle seed")
 
     fl = sub.add_parser("fedavg", help="run flat or hierarchical FedAvg trajectory replay")
     fl.add_argument("--config", default="configs/learning.yaml")
@@ -83,6 +88,9 @@ def main(argv=None) -> int:
                     help="run a synthetic IID control over the same selected natural client windows")
     fl.add_argument("--transient-participation", action="store_true",
                     help="replay deterministic vehicle arrivals/departures across rounds")
+    fl.add_argument("--training-seed", type=int, help="override model/client-order seeds")
+    fl.add_argument("--rsu-self-update", choices=["true", "false"],
+                    help="override federation.rsu_self_update for hierarchical ablations")
 
     pr = sub.add_parser("phase2-report", help="generate a report from saved Phase 2 experiment artifacts")
     pr.add_argument("--dataset", required=True, help="dataset directory containing dataset_manifest.json")
@@ -90,6 +98,25 @@ def main(argv=None) -> int:
     pr.add_argument("--experiment", action="append", required=True,
                     help="saved learning experiment directory; repeat for each method")
     pr.add_argument("--output", help="new report directory (must not already exist)")
+    pr.add_argument("--statistics", help="paired phase2-stats artifact directory to include")
+
+    ps = sub.add_parser("phase2-stats", help="run paired run-level bootstrap analysis on saved predictions")
+    ps.add_argument("--baseline", required=True, help="saved full-dataset baseline experiment directory")
+    ps.add_argument("--experiment", action="append", required=True,
+                    help="saved seeded learned experiment directory; repeat for all seeds/methods")
+    ps.add_argument("--output", help="new statistics directory")
+    ps.add_argument("--bootstrap-replicates", type=int, default=10000)
+    ps.add_argument("--bootstrap-seed", type=int, default=20261031)
+
+    le = sub.add_parser("phase2-local-eval", help="evaluate local GRUs for every eligible training client")
+    le.add_argument("--config", default="configs/learning.yaml")
+    le.add_argument("--dataset", help="override the dataset directory in the learning config")
+    le.add_argument("--output", help="evaluation directory; must be new unless --resume is set")
+    le.add_argument("--training-seed", type=int, help="override the local model seed")
+    le.add_argument("--max-clients", type=int, help="bounded smoke limit; omit for every eligible client")
+    le.add_argument("--resume", action="store_true", help="resume completed client records in --output")
+    le.add_argument("--device", choices=["cpu", "cuda"], default="cpu",
+                    help="local model device; CUDA requires a CUDA-enabled PyTorch build")
 
     r = sub.add_parser("replay", help="replay a saved run from its logs (no SUMO needed)")
     r.add_argument("--run", required=True)
@@ -133,7 +160,17 @@ def main(argv=None) -> int:
             return 0
         if a.cmd == "simulate":
             from .runner import run_simulation
-            res = run_simulation(_cfg_from_args(a), quiet=a.quiet)
+            live_federation = None
+            if a.online_federation:
+                from .live_federation import LiveFederation, LiveFederationError
+                try:
+                    live_federation = LiveFederation(a.learning_config)
+                except LiveFederationError as e:
+                    print(f"live federation error: {e}", file=sys.stderr)
+                    return 2
+            res = run_simulation(
+                _cfg_from_args(a), quiet=a.quiet, live_federation=live_federation
+            )
             print(f"\nartifacts: {res.run_dir}")
             return 0 if res.status in ("completed", "sim_timeout") else 2
         if a.cmd == "collect":
@@ -174,7 +211,9 @@ def main(argv=None) -> int:
             from .baseline import BaselineError
             from .training import TrainingError, run_gru_training
             try:
-                output = run_gru_training(a.config, a.method, a.dataset, a.client)
+                output = run_gru_training(
+                    a.config, a.method, a.dataset, a.client, training_seed=a.training_seed
+                )
             except (BaselineError, TrainingError) as e:
                 print(f"training error: {e}", file=sys.stderr)
                 return 2
@@ -188,6 +227,10 @@ def main(argv=None) -> int:
                 output = run_fedavg_training(
                     a.config, a.dataset, hierarchy=a.hierarchical, iid_control=a.iid_control,
                     transient_participation=a.transient_participation,
+                    training_seed=a.training_seed,
+                    rsu_self_update_override=(
+                        None if a.rsu_self_update is None else a.rsu_self_update == "true"
+                    ),
                 )
             except (BaselineError, TrainingError) as e:
                 print(f"FedAvg error: {e}", file=sys.stderr)
@@ -197,11 +240,43 @@ def main(argv=None) -> int:
         if a.cmd == "phase2-report":
             from .phase2_report import ReportError, run_phase2_report
             try:
-                output = run_phase2_report(a.dataset, a.baseline, a.experiment, a.output)
+                output = run_phase2_report(
+                    a.dataset, a.baseline, a.experiment, a.output, statistics_run=a.statistics
+                )
             except ReportError as e:
                 print(f"Phase 2 report error: {e}", file=sys.stderr)
                 return 2
             print(f"Phase 2 report artifacts: {output}")
+            return 0
+        if a.cmd == "phase2-stats":
+            from .phase2_statistics import StatisticsError, run_paired_statistics
+            try:
+                output = run_paired_statistics(
+                    a.baseline, a.experiment, a.output,
+                    bootstrap_replicates=a.bootstrap_replicates,
+                    bootstrap_seed=a.bootstrap_seed,
+                )
+            except StatisticsError as e:
+                print(f"Phase 2 statistics error: {e}", file=sys.stderr)
+                return 2
+            print(f"Phase 2 paired statistics: {output}")
+            return 0
+        if a.cmd == "phase2-local-eval":
+            from .local_evaluation import LocalEvaluationError, run_broad_local_evaluation
+            try:
+                output = run_broad_local_evaluation(
+                    a.config,
+                    dataset_override=a.dataset,
+                    output=a.output,
+                    training_seed=a.training_seed,
+                    max_clients=a.max_clients,
+                    resume=a.resume,
+                    device=a.device,
+                )
+            except LocalEvaluationError as e:
+                print(f"Phase 2 local evaluation error: {e}", file=sys.stderr)
+                return 2
+            print(f"Phase 2 local evaluation artifacts: {output}")
             return 0
         if a.cmd == "replay":
             from .replay import replay_run

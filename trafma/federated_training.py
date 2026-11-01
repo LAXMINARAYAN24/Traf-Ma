@@ -171,10 +171,30 @@ def run_fedavg_training(config_path: Union[str, Path],
                         dataset_override: Optional[str] = None,
                         hierarchy: bool = False,
                         iid_control: bool = False,
-                        transient_participation: bool = False) -> Path:
+                        transient_participation: bool = False,
+                        training_seed: Optional[int] = None,
+                        rsu_self_update_override: Optional[bool] = None) -> Path:
     """Run fixed-cohort flat or two-stage hierarchical FedAvg trajectory replay."""
     config = load_learning_config(config_path)
+    if training_seed is not None:
+        if isinstance(training_seed, bool) or not isinstance(training_seed, int):
+            raise TrainingError("training_seed must be an integer")
+        config["training"]["seed"] = training_seed
+    if rsu_self_update_override is not None:
+        if not isinstance(rsu_self_update_override, bool):
+            raise TrainingError("rsu_self_update_override must be boolean")
+        config.setdefault("federation", {})["rsu_self_update"] = rsu_self_update_override
     training = _validate_training(config)
+    evaluation_seed = config.get("evaluation_seed", training["seed"])
+    if isinstance(evaluation_seed, bool) or not isinstance(evaluation_seed, int):
+        raise TrainingError("evaluation_seed must be an integer")
+    evaluation_windows_per_run = config.get("evaluation_windows_per_run")
+    if evaluation_windows_per_run is not None and (
+        isinstance(evaluation_windows_per_run, bool)
+        or not isinstance(evaluation_windows_per_run, int)
+        or evaluation_windows_per_run < 1
+    ):
+        raise TrainingError("evaluation_windows_per_run must be a positive integer")
     federation = config.get("federation")
     if not isinstance(federation, dict):
         raise TrainingError("learning config must define federation settings")
@@ -196,6 +216,12 @@ def run_fedavg_training(config_path: Union[str, Path],
         raise TrainingError("federation.deadline_s must be positive")
     if federation.get("aggregation") != "sample_weighted_model_weights":
         raise TrainingError("federation.aggregation must be sample_weighted_model_weights")
+    rsu_self_update = federation.get("rsu_self_update", True)
+    if not isinstance(rsu_self_update, bool):
+        raise TrainingError("federation.rsu_self_update must be boolean")
+    cohort_seed = federation.get("cohort_seed", training["seed"])
+    if isinstance(cohort_seed, bool) or not isinstance(cohort_seed, int):
+        raise TrainingError("federation.cohort_seed must be an integer")
     transient_rate = federation.get("transient_vehicle_participation_rate")
     if (isinstance(transient_rate, bool) or not isinstance(transient_rate, (int, float))
             or not math.isfinite(transient_rate) or not 0 < transient_rate <= 1):
@@ -215,21 +241,24 @@ def run_fedavg_training(config_path: Union[str, Path],
     minimum_windows = int(config["baseline"]["minimum_client_windows"])
     if hierarchy:
         vehicle_client_ids = _select_hierarchical_vehicles(
-            dataset_manifest, max_clients - 4, minimum_windows, int(training["seed"])
+            dataset_manifest, max_clients - 4, minimum_windows, cohort_seed
         )
-        persistent_rsu_ids = [f"rsu_{approach}" for approach in ("N", "E", "S", "W")]
+        persistent_rsu_ids = (
+            [f"rsu_{approach}" for approach in ("N", "E", "S", "W")]
+            if rsu_self_update else []
+        )
         rsu_source_ids = [
             client_id for client_id, metadata in dataset_manifest.get("clients", {}).items()
             if metadata.get("split") == "train" and metadata.get("trainable")
             and metadata.get("type") == "rsu"
         ]
-        source_client_ids = vehicle_client_ids + rsu_source_ids
+        source_client_ids = vehicle_client_ids + (rsu_source_ids if rsu_self_update else [])
         client_ids = sorted(vehicle_client_ids + persistent_rsu_ids)
         source_to_destination = {client_id: client_id for client_id in vehicle_client_ids}
         client_meta_by_id = {
             client_id: dataset_manifest["clients"][client_id] for client_id in vehicle_client_ids
         }
-        for approach in ("N", "E", "S", "W"):
+        for approach in ("N", "E", "S", "W") if rsu_self_update else ():
             persistent_id = f"rsu_{approach}"
             client_meta_by_id[persistent_id] = {"type": "rsu", "approach": approach}
             for source_id in rsu_source_ids:
@@ -238,7 +267,7 @@ def run_fedavg_training(config_path: Union[str, Path],
         sample_cap = max_windows_per_client
     else:
         client_ids = _select_clients(dataset_manifest, max_clients, minimum_windows,
-                                     int(training["seed"]))
+                                     cohort_seed)
         source_client_ids = list(client_ids)
         source_to_destination = {client_id: client_id for client_id in client_ids}
         client_meta_by_id = {
@@ -258,12 +287,13 @@ def run_fedavg_training(config_path: Union[str, Path],
     base_tensors = _client_tensor_map(global_model)
     client_samples, available_window_counts = _collect_client_windows(
         dataset_dir, source_client_ids, client_ids, source_to_destination,
-        sample_cap, int(training["seed"]),
+        sample_cap, cohort_seed,
     )
     if iid_control:
         source_client_ids = list(client_ids)
         pooled_samples = [sample for rows in client_samples.values() for sample in rows]
-        client_samples = _partition_iid_windows(pooled_samples, max_clients, int(config["iid"]["seed"]))
+        iid_seed = int(config["iid"]["seed"])
+        client_samples = _partition_iid_windows(pooled_samples, max_clients, iid_seed)
         client_ids = sorted(client_samples)
         client_meta_by_id = {
             client_id: {"type": "synthetic_iid", "approach": "mixed"}
@@ -283,10 +313,12 @@ def run_fedavg_training(config_path: Union[str, Path],
         sample for samples in client_samples.values() for sample in samples
     ]
     val_samples = _sample_windows(
-        dataset_dir, "val", int(training["max_validation_windows"]), int(training["seed"]) + 1
+        dataset_dir, "val", int(training["max_validation_windows"]), evaluation_seed + 1,
+        per_run_maximum=evaluation_windows_per_run,
     )
     test_samples = _sample_windows(
-        dataset_dir, "test", int(training["max_validation_windows"]), int(training["seed"]) + 2
+        dataset_dir, "test", int(training["max_validation_windows"]), evaluation_seed + 2,
+        per_run_maximum=evaluation_windows_per_run,
     )
     if not val_samples or not test_samples:
         raise TrainingError("validation and test splits must each contain sampled windows")
@@ -303,7 +335,10 @@ def run_fedavg_training(config_path: Union[str, Path],
         "flat_fedavg_iid" if iid_control else
         "flat_fedavg"
     )
-    experiment_id = f"{method_name}_{dataset_dir.name}_{start_utc.strftime('%Y%m%dT%H%M%SZ')}"
+    experiment_id = (
+        f"{method_name}_{dataset_dir.name}_seed{training['seed']}_"
+        f"{start_utc.strftime('%Y%m%dT%H%M%SZ')}"
+    )
     output_dir = output_root / experiment_id
     if output_dir.exists():
         raise TrainingError(f"experiment output already exists: {output_dir}")
@@ -341,6 +376,7 @@ def run_fedavg_training(config_path: Union[str, Path],
             active_ids = set(active_client_ids)
             client_arrivals = sorted(active_ids - previous_active_ids)
             client_departures = sorted(previous_active_ids - active_ids)
+            random.Random(int(training["seed"]) + round_id * 104729).shuffle(active_client_ids)
             updates = []
             local_durations = 0.0
             for client_id in active_client_ids:
@@ -375,11 +411,16 @@ def run_fedavg_training(config_path: Union[str, Path],
                     },
                 )
                 updates.append(update)
-            aggregator = aggregate_hierarchical if hierarchy else aggregate_flat
-            result = aggregator(
-                updates, base_tensors, round_id=round_id, model_version=model_version,
-                deadline_s=float(deadline_s),
-            )
+            if hierarchy:
+                result = aggregate_hierarchical(
+                    updates, base_tensors, round_id=round_id, model_version=model_version,
+                    deadline_s=float(deadline_s), rsu_self_update=rsu_self_update,
+                )
+            else:
+                result = aggregate_flat(
+                    updates, base_tensors, round_id=round_id, model_version=model_version,
+                    deadline_s=float(deadline_s),
+                )
             accepted = set(result.accepted_clients)
             for update in updates:
                 rejection = result.rejected_clients.get(update.client_id, "")
@@ -489,7 +530,7 @@ def run_fedavg_training(config_path: Union[str, Path],
     if hierarchy:
         eligible_count = sum(
             client.get("type") == "vehicle" for client in eligible_clients
-        ) + 4
+        ) + (4 if rsu_self_update else 0)
     else:
         eligible_count = len(eligible_clients)
     manifest = {
@@ -498,6 +539,7 @@ def run_fedavg_training(config_path: Union[str, Path],
                    else "flat_synthetic_iid_fedavg" if iid_control
                    else "flat_sample_weighted_fedavg"),
         "hierarchical": hierarchy,
+        "rsu_self_update": rsu_self_update if hierarchy else None,
         "iid_control": iid_control,
         "transient_participation": transient_participation,
         "transient_vehicle_participation_rate": transient_rate if transient_participation else None,
@@ -533,6 +575,9 @@ def run_fedavg_training(config_path: Union[str, Path],
         "validation_window_count": len(val_samples),
         "test_window_count": len(test_samples),
         "seed": training["seed"],
+        "cohort_seed": cohort_seed,
+        "evaluation_seed": evaluation_seed,
+        "evaluation_windows_per_run": evaluation_windows_per_run,
         "deterministic_algorithms": training["deterministic"],
         "device": "cpu",
         "python": sys.version.split()[0],

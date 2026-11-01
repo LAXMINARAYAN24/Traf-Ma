@@ -2,6 +2,8 @@
 dataset: data/phase2_v2_dev
 output_dir: runs/phase2
 seed: 20261031
+evaluation_seed: 20261031
+evaluation_windows_per_run: 256
 baseline:
   method: pooled_signal_aware_ridge
   ridge_alpha: 1.0
@@ -26,9 +28,12 @@ training:
 federation:
   rounds: 20
   max_clients: 16
+  cohort_seed: 20261031
   max_windows_per_client: 2000
   deadline_s: 300.0
+  live_round_interval_s: 60.0
   transient_vehicle_participation_rate: 0.75
   aggregation: sample_weighted_model_weights
+  rsu_self_update: true
 iid:
   seed: 20261031

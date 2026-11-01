@@ -52,7 +52,7 @@ truth about the code and the differences are listed in section 8.
 
 ## 5. Run artefacts
 
-`runs/<id>/`: `manifest.json`, `summary.txt`, `scenario/`, `agents/rsu_*.jsonl`, `agents/veh_*.jsonl` (agent-local views only), `messages.jsonl` (transport trace; `message_trace: full` keeps every send, `exceptions` keeps only drops/rejections), `trace.jsonl` (deterministic per-step state; its SHA-256 is the reproducibility fingerprint), `global_snapshots.jsonl`, `evaluator/truth.jsonl`, `evaluator/events.jsonl`. Dataset runs additionally have `labels.jsonl` and `windows.jsonl` (window index and label only, **not** feature values).
+`runs/<id>/`: `manifest.json`, `summary.txt`, `scenario/`, `agents/rsu_*.jsonl`, `agents/veh_*.jsonl` (agent-local views only), `messages.jsonl` (transport trace; `message_trace: full` keeps every send, `exceptions` keeps only drops/rejections), `trace.jsonl` (deterministic per-step state; its SHA-256 is the reproducibility fingerprint), `global_snapshots.jsonl`, `evaluator/truth.jsonl`, `evaluator/events.jsonl`. Dataset runs additionally have `labels.jsonl` and `windows.jsonl` (window index and label only, **not** feature values). Live-federation runs also write `online_federation.jsonl` and `online_checkpoints/`.
 
 Dataset folders: `data/<dataset_id>/dataset_manifest.json` and `dataset_report.txt` are committed; `data/<dataset_id>/runs/` is git-ignored and regenerated deterministically by `trafma collect`. `examples/demo_n20_s42/` is one stand-alone demonstration run (not part of any dataset).
 
@@ -69,9 +69,9 @@ Dataset folders: `data/<dataset_id>/dataset_manifest.json` and `dataset_report.t
 
 `trafma.features/1` implements a deterministic 22-value timestep adapter and ten-step window reader. The adapter uses only each client's own log plus its run's static config/topology. Full `phase2_v1`, `phase2_v2_dev` and `phase2_v2` audits pass with one shared feature-schema hash.
 
-The two-head GRU supports explicit single-client local training and a pooled offline central reference. Flat FedAvg trains selected saved-trajectory clients from a common global checkpoint. Hierarchical FedAvg uses four fixed groups: vehicle updates route to their original parent RSU, and the user-approved persistent `rsu_N/E/S/W` learners train separately on their own sensor windows pooled across training runs (never on child histories). The smoke configuration caps each RSU learner at 2,000 distinct training windows. All learning/federation is offline replay; the SUMO live loop is not yet performing online learning.
+The two-head GRU supports explicit single-client local training and a pooled offline central reference. Flat FedAvg trains selected saved-trajectory clients from a common global checkpoint. Hierarchical FedAvg uses four fixed groups: vehicle updates route to their original parent RSU, and the user-approved persistent `rsu_N/E/S/W` learners train separately on their own sensor windows pooled across training runs (never on child histories). The smoke configuration caps each RSU learner at 2,000 distinct training windows. The optional `simulate --online-federation` path calls the same hierarchical update validator at simulated-time round boundaries. Its evaluator labels are handed to the owning local cache only at exact `end_t + 30 s` maturity; inference features remain agent-local.
 
-`trafma fedavg --iid-control` is a synthetic IID diagnostic over the same selected natural replay windows. `--transient-participation` deterministically resamples vehicle participation each round; those arrivals/departures are replay simulation, not live connections. Update payloads contain model tensors and allowlisted scalar metadata, not raw histories or labels. See `docs/PHASE2_IMPLEMENTATION.md` for evidence and limitations.
+`trafma fedavg --iid-control` is a synthetic IID diagnostic over the same selected natural replay windows. `--transient-participation` deterministically resamples vehicle participation each round; those arrivals/departures are replay simulation, not live connections. The live path is a simulation/evaluation hook, not a privacy guarantee. Update payloads contain model tensors and allowlisted scalar metadata, not raw histories, per-example labels or evaluator truth. See `docs/PHASE2_IMPLEMENTATION.md` for evidence and limitations.
 
 | Shared scalar | RSU source | Vehicle source |
 |---|---|---|
@@ -97,5 +97,5 @@ Full log audits passed across 24 v1, 48 v2_dev and 160 full-v2 runs: 86,400 / 17
 | Congestion thresholds | queue/capacity 0.2 / 0.5 | queue_m/zone_m 0.10 / 0.35 |
 | Envelope | `run_id`, `parent_camera_id`, `coverage_bin_ids`, `sent_time` | `hops` carries provenance; run id is in the manifest, not the envelope; no coverage bins yet |
 | Message types | + prediction, model update, group update, trust evidence, alert | only `vehicle_report`, `rsu_summary`, `relay_bundle` |
-| Feature schema | 22-value proposal | `trafma.features/1`, GRU and offline federation implemented; audits pass on v1, v2_dev and v2 |
+| Feature schema | 22-value proposal | `trafma.features/1`, GRU and offline/live federation implemented; audits pass on v1, v2_dev and v2 |
 | Seeds | train 100-109, val 200-204, test 300-304 | v2 follows this; v1 used 1-3 / 4 / 5-6 |

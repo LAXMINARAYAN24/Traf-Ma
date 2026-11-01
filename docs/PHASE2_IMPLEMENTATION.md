@@ -14,8 +14,9 @@ The implemented P2.2-P2.7 development slice provides:
 - Flat FedAvg, synthetic IID control, transient offline participation replay, and hierarchical FedAvg.
 - Four persistent RSU sensor learners; each trains on its own approach's training-run sensor windows only and is counted once in its RSU group.
 - Saved predictions, checkpoints, metrics, round/client logs, reproducibility manifests and a report generator producing Markdown, HTML and plots.
+- Optional live SUMO federation: persistent RSU learners and eligible vehicle clients train from matured local labels at simulated-time round boundaries.
 
-Phase 2 is not fully frozen: full-v2 model training, paired multi-seed comparisons, a broad multi-client local-only benchmark, and a live online participation demonstration remain open. The existing transient-participation experiment is offline replay, not an online connection.
+Phase 2 is not fully frozen: the broad all-eligible-client local-only benchmark has an implemented resumable evaluator but its population run remains open. Full-v2 learned-method evaluation, paired multi-seed statistics, and the final comparison report are complete. The live path has a short smoke artifact; the existing transient-participation experiment remains offline replay, not a substitute for that live runner.
 
 ## Data boundary and label contract
 
@@ -69,6 +70,7 @@ Command:
 
 ```powershell
 python -m trafma baseline --config configs\learning.yaml
+python -m trafma baseline --config configs\learning.yaml --dataset data\phase2_v2
 ```
 
 The baseline config fixes Ridge `alpha=1.0`, minimum client training history at 16 windows, and the development dataset. Ridge is fitted only on eligible training clients' windows and the saved signal-aware coefficients are in the experiment checkpoint. Its input is the final timestep's local 22-value vector. It is an offline pooled reference, not a federated or private model. Predicted classes are derived from predicted queue metres using the fixed 0.10/0.35 thresholds.
@@ -99,6 +101,24 @@ runs/phase2/baseline_phase2_v2_dev_20261031T104426Z/
 
 The manifest records dataset-manifest and config hashes, disjoint run IDs, feature-schema hash, code revision/worktree state, Python/platform/CPU, dataset simulator versions, installed package versions, seed and wall-clock timing.
 
+The full-v2 non-neural baseline is saved at `runs/phase2/baseline_phase2_v2_20261031T164408Z/`. Across all 1,187,485 held-out windows, signal-aware Ridge scored MAE 35.1973 m, RMSE 43.8793 m, macro-F1 0.4891 and balanced accuracy 0.5489. The train-only majority diagnostic scored macro-F1 0.2092 / balanced accuracy 0.3333. Persistence is available for 137,760 RSU rows only (MAE 28.1297 m, RMSE 48.0169 m, macro-F1 0.5266); it is not matched to Ridge's all-client row set. These are overlapping-window descriptive values, not independent-run uncertainty estimates.
+
+Five full-v2 pooled GRU seeds, five natural flat FedAvg seeds, five synthetic IID seeds, and five seeds for each hierarchical RSU-self-update mode are saved. The paired-statistics bundle is `runs/phase2/stats_phase2_v2_20261031T182654Z/`; it verifies identical test identities (10,240 rows across 40 held-out runs), includes per-seed and per-run metrics, and bootstraps the 40 test runs (10,000 resamples). Selected pooled-window seed metrics:
+
+| Seed | Artifact suffix | Test N | MAE (m) | RMSE (m) | Macro-F1 | Balanced accuracy |
+|---:|---|---:|---:|---:|---:|---:|
+| 20261031 | `central_gru_phase2_v2_seed20261031_20261031T165042Z` | 10,240 | 28.2207 | 36.5911 | 0.5487 | 0.5745 |
+| 20261032 | `central_gru_phase2_v2_seed20261032_20261031T170420Z` | 10,240 | 29.8459 | 38.0900 | 0.5895 | 0.6000 |
+| 20261033 | `central_gru_phase2_v2_seed20261033_20261031T171350Z` | 10,240 | 29.0011 | 37.5811 | 0.6041 | 0.6069 |
+| 20261034 | `central_gru_phase2_v2_seed20261034_20261031T173813Z` | 10,240 | 29.2135 | 39.6690 | 0.5668 | 0.5858 |
+| 20261035 | `central_gru_phase2_v2_seed20261035_20261031T174532Z` | 10,240 | 32.1649 | 42.2639 | 0.6008 | 0.6197 |
+
+Run-level, seed-averaged estimates with run-bootstrap 95% CIs are available in `stats_phase2_v2_20261031T182654Z/summary.md` and are included in the final report. Central GRU vs Ridge is not significant for RMSE and balanced accuracy; IID vs natural FedAvg is not significant for macro-F1; IID vs hierarchical FedAvg with RSU self-updates off is not significant for macro-F1. Other reported paired intervals excluded zero. These pairwise tests are unadjusted for multiple comparisons and should be treated as exploratory.
+
+The final representative-run report is `runs/phase2/report_phase2_v2_final_20261101T0012Z/`; it includes Markdown/HTML, plots, per-client label distributions and paired run-level results. Method breakdowns use one representative seed; inferential summaries use all five. The matched natural/IID FL cohort contains 16 source clients, with median/p90 per-client JSD 0.081104/0.316248 bits (natural) versus 0.000002/0.000012 bits (IID). The full distribution JSON contains all 17,529 eligible training clients. This shows homogenization in the selected IID control, not an accuracy gain.
+
+The repeatable local-CPU sweep is `.\scripts\run_phase2_full_v2_sweep.ps1`. It processes central, natural flat, IID, hierarchical with RSU self-updates on, and hierarchical with RSU self-updates off, for seeds 20261031-20261035. It skips completed artifacts matching dataset, method, seed and RSU mode, uses the frozen training settings, and generates paired statistics after completion. The all-eligible-client local-only benchmark is still not implemented.
+
 ## Commands currently implemented
 
 - `python -m trafma features-audit --dataset <dataset-dir> [--output <json-path>]`
@@ -109,7 +129,17 @@ The manifest records dataset-manifest and config hashes, disjoint run IDs, featu
 - `python -m trafma fedavg --iid-control [--config configs/learning.yaml]`
 - `python -m trafma fedavg --transient-participation [--config configs/learning.yaml]`
 - `python -m trafma fedavg --hierarchical [--config configs/learning.yaml]`
+- `python -m trafma simulate --online-federation [--learning-config configs/learning.yaml]`
+- `.\scripts\demo_phase2_live.ps1`
 - `python -m trafma phase2-report --dataset <dataset-dir> --baseline <baseline-run> --experiment <run> [--experiment <run> ...]`
+- `python -m trafma phase2-report --dataset <dataset-dir> --baseline <baseline-run> --experiment <run> [--experiment <run> ...] --statistics <phase2-stats-run>`
+- `python -m trafma phase2-local-eval --config configs/learning.yaml --dataset data/phase2_v2 --output runs/phase2/local_population_phase2_v2 --resume`
+
+## Broad local-only evaluation
+
+`phase2-local-eval` enumerates every train-split manifest client, including all four RSU identities and every vehicle client meeting the configured minimum of 16 windows. It writes explicit ineligible records and reasons, then trains one local GRU per eligible client and appends one JSONL result as each client finishes. `--resume` skips completed clients after interruption; `--max-clients` is available only for a bounded smoke run and must not be used for the headline population result. `--device cuda` moves local GRU batches and model parameters to the GPU and fails explicitly if PyTorch has no CUDA device; the default remains CPU. `summary.json` reports completed/failed/ineligible counts and median, IQR and worst-decile MAE distributions grouped by client type, approach and scenario. Local model artifacts are retained under the evaluation directory so results can be audited without overwriting the baseline or federation runs.
+- `python -m trafma phase2-stats --baseline <baseline-run> --experiment <seeded-run> [--experiment <seeded-run> ...]`
+- `.\scripts\run_phase2_full_v2_sweep.ps1` (long-running full-v2 learned-method sweep and paired statistics)
 
 ## Local and central training
 
@@ -117,7 +147,7 @@ The manifest records dataset-manifest and config hashes, disjoint run IDs, featu
 
 ## Federation contract and RSU decision
 
-The user approved D4: `rsu_N`, `rsu_E`, `rsu_S`, and `rsu_W` are persistent learning identities. Each trains on its own RSU sensor observations pooled across training runs; no child vehicle histories are used as RSU training examples. The hierarchical smoke caps each RSU learner at 2,000 distinct training windows using a seeded reservoir sample. Vehicle trajectory clients remain separate and route to their original parent RSU group. `max_clients` includes the four RSUs in hierarchical mode.
+The user approved D4: `rsu_N`, `rsu_E`, `rsu_S`, and `rsu_W` are persistent learning identities. Each trains on its own RSU sensor observations pooled across training runs; no child vehicle histories are used as RSU training examples. The hierarchical smoke caps each RSU learner at 2,000 distinct training windows using a seeded reservoir sample. Vehicle trajectory clients remain separate and route to their original parent RSU group. `max_clients` includes the four RSUs in hierarchical mode. `federation.rsu_self_update` defaults to `true`; setting it to `false` excludes RSU learner updates while preserving each RSU as the vehicle edge aggregator.
 
 All clients start each round from the same global checkpoint. Updates carry model weights and allowlisted scalar metadata, including distinct-window sample count; they do not carry feature histories, labels or evaluator truth. Validators reject duplicates, wrong/late rounds, base/schema/signature mismatches, non-finite updates, invalid counts and disallowed metadata. Group aggregation includes an RSU's self-update once alongside its child updates, preserves group mass, omits empty groups and reproduces flat FedAvg on identical fixtures.
 
@@ -137,7 +167,17 @@ The saved comparison uses a deterministic 10,000-row `phase2_v2_dev` test sample
 
 Moderate-class recall is zero in all three flat-FL variants and in the hierarchical smoke. Keep this failure visible in confusion matrices; do not make a robustness or accuracy claim from these runs. The selected flat replay cohort was all vehicle clients; hierarchical mode used 12 vehicle clients balanced across approaches plus four persistent RSUs. The local-only smoke used `asymmetric_ew_s100/rsu_E` (861 training windows) and a 10,000-row held-out RSU/E stratum, so it is not the global model's test cohort.
 
-The 75% transient experiment chooses 12 of 16 vehicle clients each round, logs client arrivals/departures and remains an offline replay. It does not show real SUMO clients training online or establish radio/network performance.
+The 75% transient experiment chooses 12 of 16 vehicle clients each round, logs client arrivals/departures and remains an offline replay. It does not establish radio/network performance.
+
+## Live SUMO federation smoke
+
+`simulate --online-federation` connects the live runner to the same local GRU and hierarchical FedAvg protocol. Client histories remain local; evaluator labels are released only at their exact `end_t + 30 s` maturity time. Vehicles become trainable only while active and after enough matured windows; an arrival retires the client and clears its rolling observation history. Each round respects `federation.max_clients`, reserving four client slots for persistent RSUs in both self-update modes so the vehicle cap stays comparable. The runner invokes rounds after simulator report boundaries, not inside the SUMO step implementation. Simulated-time scheduling and wall-clock training/aggregation timings are logged separately.
+
+The repeatable 180-second demo completed at `runs/phase2/phase2_live_demo_20261031_225007_34344/`. It completed three rounds, advanced the model from version 0 to 3, accepted the four RSU self-updates at each round, logged 12 vehicle client-round participations, and emitted the online-log SHA-256 in the manifest. No departed vehicle appeared in a later round. This is a wiring/smoke check, not a performance benchmark or a claim about radio latency.
+
+## Non-IID and synthetic-IID label distributions
+
+The report generator now emits all eligible natural training-client sample counts, class histograms, and per-client base-2 Jensen-Shannon divergence from the pooled training distribution. It also compares matching selected natural clients with the synthetic IID partitions created from the same windows. The v2_dev report smoke at `runs/phase2/report_phase2_distribution_smoke2/` contains 5,272 eligible natural clients and one matched 16-client cohort: median client JSD was 0.026892 bits (p90 0.407980) for the natural cohort versus 0.000006 bits (p90 0.000059) for IID partitions. This confirms the control homogenized class distributions in that selected cohort; it does not demonstrate a predictive performance benefit or establish full-v2 population behavior.
 
 ## Saved development artifacts
 
