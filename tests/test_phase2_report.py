@@ -9,7 +9,7 @@ from trafma.phase2_report import (
     _paired_statistics_section,
     ReportError,
 )
-from trafma.local_evaluation import _distribution
+from trafma.local_evaluation import _distribution, _select_representative_clients
 
 
 def test_matched_baseline_uses_only_requested_rows_and_reports_partial_persistence(tmp_path):
@@ -56,6 +56,12 @@ def test_matched_baseline_uses_only_requested_rows_and_reports_partial_persisten
 
 
 def test_report_labels_identify_hierarchical_and_synthetic_iid_experiments():
+    assert _experiment_label({
+        "evaluation_mode": "representative_stratified_local_only",
+    }) == "Independent local-only GRU (representative stratified)"
+    assert _experiment_label({
+        "evaluation_mode": "exhaustive_local_only",
+    }) == "Independent local-only GRU (exhaustive)"
     assert _experiment_label({
         "method": "hierarchical_sample_weighted_fedavg",
         "hierarchical": True,
@@ -134,6 +140,33 @@ def test_local_evaluation_distribution_reports_median_iqr_and_worst_decile():
     assert result["median_mae_m"] == 2.0
     assert result["iqr_mae_m"] == 4.5
     assert result["worst_decile_mae_m"] == 8.4
+
+
+def test_representative_local_selection_is_deterministic_and_covers_dimensions():
+    clients = []
+    for client_type in ("rsu", "vehicle"):
+        for approach in ("N", "E", "S", "W"):
+            for scenario in ("free", "heavy"):
+                for windows in (16, 40, 100, 200):
+                    client_id = f"{client_type}/{approach}/{scenario}/{windows}"
+                    clients.append((client_id, {
+                        "type": client_type,
+                        "approach": approach,
+                        "scenario": scenario,
+                        "windows": windows,
+                        "trainable": True,
+                        "split": "train",
+                    }))
+
+    first = _select_representative_clients(clients, 32, seed=7)
+    second = _select_representative_clients(clients, 32, seed=7)
+
+    assert [client_id for client_id, _ in first] == [client_id for client_id, _ in second]
+    assert len(first) == 32
+    assert {client["type"] for _, client in first} == {"rsu", "vehicle"}
+    assert {client["approach"] for _, client in first} == {"N", "E", "S", "W"}
+    assert {client["scenario"] for _, client in first} == {"free", "heavy"}
+    assert {client["windows"] for _, client in first} >= {16, 40, 100, 200}
 
 
 def test_client_distribution_report_compares_matched_natural_and_iid_partitions():

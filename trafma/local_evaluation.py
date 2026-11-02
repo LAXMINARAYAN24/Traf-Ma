@@ -20,6 +20,94 @@ class LocalEvaluationError(ValueError):
     """Raised when the all-client local evaluation cannot be initialized."""
 
 
+_WINDOW_BANDS = (
+    ("16-31", 16, 31),
+    ("32-63", 32, 63),
+    ("64-127", 64, 127),
+    ("128+", 128, None),
+)
+
+
+def _window_band(windows: int) -> str:
+    for name, lower, upper in _WINDOW_BANDS:
+        if windows >= lower and (upper is None or windows <= upper):
+            return name
+    raise LocalEvaluationError(f"eligible client has invalid window count: {windows}")
+
+
+def _select_representative_clients(
+    eligible: list[tuple[str, dict]], count: int, seed: int
+) -> list[tuple[str, dict]]:
+    """Select a deterministic, coverage-oriented client sample."""
+    if count < 1:
+        raise LocalEvaluationError("representative_clients must be a positive integer")
+    if count >= len(eligible):
+        return list(eligible)
+
+    import random
+
+    candidates = sorted(eligible)
+    rng = random.Random(seed)
+    rng.shuffle(candidates)
+    selected_ids: set[str] = set()
+
+    dimensions = (
+        ("type", lambda client: str(client.get("type"))),
+        ("approach", lambda client: str(client.get("approach"))),
+        ("scenario", lambda client: str(client.get("scenario"))),
+        ("window_band", lambda client: _window_band(int(client["windows"]))),
+    )
+    for _name, value_for in dimensions:
+        for value in sorted({value_for(client) for _, client in eligible}):
+            for client_id, client in candidates:
+                if client_id not in selected_ids and value_for(client) == value:
+                    selected_ids.add(client_id)
+                    break
+
+    buckets: dict[tuple[str, str, str, str], list[tuple[str, dict]]] = defaultdict(list)
+    for client_id, client in candidates:
+        if client_id not in selected_ids:
+            buckets[(
+                str(client.get("type")),
+                str(client.get("approach")),
+                str(client.get("scenario")),
+                _window_band(int(client["windows"])),
+            )].append((client_id, client))
+    bucket_keys = list(buckets)
+    rng.shuffle(bucket_keys)
+    for bucket in buckets.values():
+        rng.shuffle(bucket)
+
+    while len(selected_ids) < count:
+        added = False
+        for bucket_key in bucket_keys:
+            bucket = buckets[bucket_key]
+            if bucket:
+                client_id, _client = bucket.pop()
+                selected_ids.add(client_id)
+                added = True
+                if len(selected_ids) == count:
+                    break
+        if not added:
+            break
+
+    selected = [item for item in eligible if item[0] in selected_ids]
+    return sorted(selected)
+
+
+def _selection_strata(eligible: list[tuple[str, dict]]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for _client_id, client in eligible:
+        key = "|".join((
+            str(client.get("type")),
+            str(client.get("approach")),
+            str(client.get("scenario")),
+            _window_band(int(client["windows"])),
+        ))
+        counts[key] += 1
+    return dict(sorted(counts.items()))
+
+
 def _percentile(values: list[float], percentile: float) -> float:
     ordered = sorted(values)
     if not ordered:
@@ -72,6 +160,11 @@ def _write_summary(output_dir: Path, manifest: dict, rows: list[dict], config_ha
         "selected_client_count": manifest.get("selected_client_count"),
         "not_selected_due_to_limit": manifest.get("not_selected_due_to_limit"),
         "client_limit": manifest.get("client_limit"),
+        "evaluation_mode": manifest.get("evaluation_mode"),
+        "selection_seed": manifest.get("selection_seed"),
+        "representative_clients": manifest.get("representative_clients"),
+        "selected_client_ids": manifest.get("selected_client_ids"),
+        "selection_strata": manifest.get("selection_strata"),
         "ineligible_client_count": manifest.get("ineligible_client_count"),
         "completed_client_count": len(completed),
         "failed_client_count": sum(row.get("status") == "failed" for row in rows),
@@ -106,8 +199,11 @@ def run_broad_local_evaluation(
     max_clients: Optional[int] = None,
     resume: bool = False,
     device: Optional[str] = None,
+    selection_mode: str = "exhaustive",
+    selection_seed: int = 20261101,
+    representative_clients: int = 256,
 ) -> Path:
-    """Train/evaluate every eligible client, resuming completed client records."""
+    """Evaluate eligible clients exhaustively or with a representative stratified sample."""
     config = load_learning_config(config_path)
     dataset_dir = Path(dataset_override or config["dataset"])
     manifest_path = dataset_dir / "dataset_manifest.json"
@@ -157,7 +253,21 @@ def run_broad_local_evaluation(
             })
 
     eligible_total_count = len(eligible)
-    if max_clients is not None:
+    if selection_mode not in ("exhaustive", "stratified"):
+        raise LocalEvaluationError("selection_mode must be 'exhaustive' or 'stratified'")
+    if selection_mode == "stratified":
+        if max_clients is not None:
+            raise LocalEvaluationError(
+                "max_clients cannot be combined with stratified selection; use representative_clients"
+            )
+        if isinstance(selection_seed, bool) or not isinstance(selection_seed, int):
+            raise LocalEvaluationError("selection_seed must be an integer")
+        if isinstance(representative_clients, bool) or representative_clients < 1:
+            raise LocalEvaluationError("representative_clients must be a positive integer")
+        eligible = _select_representative_clients(
+            eligible, representative_clients, selection_seed
+        )
+    elif max_clients is not None:
         if isinstance(max_clients, bool) or max_clients < 1:
             raise LocalEvaluationError("max_clients must be a positive integer")
         eligible = eligible[:max_clients]
@@ -179,6 +289,25 @@ def run_broad_local_evaluation(
     config_hash = hashlib.sha256(config_path_for_clients.read_bytes()).hexdigest()
 
     existing_rows = _read_records(records_path)
+    existing_manifest_path = output_dir / "manifest.json"
+    if resume and existing_manifest_path.is_file():
+        existing_manifest = json.loads(existing_manifest_path.read_text(encoding="utf-8"))
+        prior_mode = existing_manifest.get("evaluation_mode", "exhaustive_local_only")
+        current_mode = (
+            "representative_stratified_local_only"
+            if selection_mode == "stratified"
+            else "exhaustive_local_only"
+        )
+        if prior_mode != current_mode:
+            raise LocalEvaluationError(
+                f"resume selection mode mismatch: output uses {prior_mode}, requested {current_mode}"
+            )
+        prior_ids = existing_manifest.get("selected_client_ids")
+        current_ids = [client_id for client_id, _client in eligible]
+        if prior_ids is not None and prior_ids != current_ids:
+            raise LocalEvaluationError(
+                "resume client selection mismatch; keep selection mode, seed, and client count unchanged"
+            )
     existing = {
         row["client_id"]: row for row in existing_rows
         if row.get("status") == "completed"
@@ -237,12 +366,23 @@ def run_broad_local_evaluation(
     ineligible_count = sum(row.get("status") == "ineligible" for row in rows)
     summary_manifest = {
         "dataset_id": dataset_dir.name,
+        "evaluation_mode": (
+            "representative_stratified_local_only"
+            if selection_mode == "stratified"
+            else "exhaustive_local_only"
+        ),
         "dataset_manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
         "minimum_client_windows": minimum,
         "eligible_client_count": eligible_total_count,
         "selected_client_count": len(eligible),
         "not_selected_due_to_limit": eligible_total_count - len(eligible),
         "client_limit": max_clients,
+        "selection_seed": selection_seed if selection_mode == "stratified" else None,
+        "representative_clients": (
+            representative_clients if selection_mode == "stratified" else None
+        ),
+        "selected_client_ids": [client_id for client_id, _client in eligible],
+        "selection_strata": _selection_strata(eligible),
         "ineligible_client_count": ineligible_count,
         "training_seed": training_seed if training_seed is not None else config["training"]["seed"],
         "config_sha256": config_hash,

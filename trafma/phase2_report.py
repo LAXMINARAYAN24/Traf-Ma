@@ -37,6 +37,10 @@ def _row_key(row: dict) -> tuple[str, str, float]:
 
 
 def _experiment_label(manifest: dict) -> str:
+    if manifest.get("evaluation_mode") == "representative_stratified_local_only":
+        return "Independent local-only GRU (representative stratified)"
+    if manifest.get("evaluation_mode") == "exhaustive_local_only":
+        return "Independent local-only GRU (exhaustive)"
     if manifest.get("method") == "local_offline_trajectory_gru":
         return f"Local GRU ({manifest.get('local_training_client')})"
     if manifest.get("method") == "central_pooled_offline_gru":

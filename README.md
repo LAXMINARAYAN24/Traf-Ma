@@ -40,7 +40,11 @@ python -m trafma fedavg --hierarchical --rsu-self-update false --config configs/
 python -m trafma phase2-report --help                         # report saved baseline/experiment runs
 python -m trafma phase2-stats --help                          # paired run-level bootstrap after five seeds/method
 .\scripts\run_phase2_full_v2_sweep.ps1                        # resumable local full-v2 five-seed sweep
-python -m trafma phase2-local-eval --help                     # all-eligible-client local GRU evaluator
+python -m trafma phase2-local-eval --help                     # exhaustive or representative local-only evaluator
+# representative local-only benchmark (256 deterministic stratified clients)
+python -m trafma phase2-local-eval --config configs/learning.yaml --dataset data/phase2_v2 \
+  --output runs/phase2/local_representative_phase2_v2 --selection-mode stratified \
+  --selection-seed 20261101 --representative-clients 256
 # add --device cuda for a CUDA-enabled PyTorch installation
 python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --duration 180 --online-federation
 .\scripts\demo_phase2_live.ps1                                 # repeatable live-federation smoke demo
@@ -48,6 +52,8 @@ python -m trafma inspect --run runs/<run-id> --vehicle veh_0005   # one agent's 
 python -m trafma inspect --run runs/<run-id> --rsu E              # one RSU's view, signal and detected vehicles
 python -m pytest                                              # run all tests
 ```
+`phase2-local-eval --selection-mode exhaustive` is the optional resumable research benchmark over all eligible clients. `--selection-mode stratified` is the bounded representative local-only benchmark; it records its seed and selected client IDs. Both are independent local training, not offline replay federation or live federation.
+
 `--gui` colours vehicles: **green** = inside its RSU zone, **red** = halted, **yellow** = approaching, **grey** = in junction / leaving.
 RSUs show as blue squares, RSU sensing zones as cyan strips on each incoming arm.
 Any config value can be overridden: `--set agents.rsu_zone_m=120 --set comms.v2i.loss_prob=0.1`.

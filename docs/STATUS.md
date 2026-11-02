@@ -9,7 +9,7 @@ Updated: 2026-11-01. "Verified" is backed by a run/test/artifact; outstanding Ph
 - **P2.2 (baselines):** persistence and train-only pooled signal-aware Ridge are implemented; v2_dev and full-v2 baseline artifacts are saved. All five full-v2 learned methods have five seeds, and paired run-level statistics are saved.
 - **P2.3 (features/model):** `trafma.features/1` and the two-head GRU are implemented. The full v1, v2_dev and v2 feature scans pass with the same schema hash.
 - **P2.4-P2.5 (federation):** flat FedAvg, four-group hierarchical FedAvg, persistent RSU sensor learners and synthetic IID control are implemented and have saved v2_dev runs. D4 is resolved below.
-- **P2.6-P2.7:** natural non-IID and transient offline participation experiments plus a saved-artifact Markdown/HTML report and plots are implemented. Per-client natural/IID distributions, paired run-level statistics, an optional live SUMO federation path, a repeatable Windows smoke-demo script, and a resumable all-eligible-client local evaluator are implemented. Full-v2 learned-method evaluation and the paired report are complete; the population local-evaluation run remains open.
+- **P2.6-P2.7:** natural non-IID and transient offline participation experiments plus a saved-artifact Markdown/HTML report and plots are implemented. Per-client natural/IID distributions, paired run-level statistics, an optional live SUMO federation path, a repeatable Windows smoke-demo script, and exhaustive plus representative resumable local-only evaluators are implemented. Full-v2 learned-method evaluation and the paired report are complete; exhaustive population local evaluation remains optional and is not a Phase 2 completion gate.
 
 ## Previously verified implementation checks
 
@@ -24,7 +24,7 @@ Updated: 2026-11-01. "Verified" is backed by a run/test/artifact; outstanding Ph
 | `trafma collect --config configs/data.yaml` | `dataset_report.txt` identical to the committed one |
 | Real SUMO run of the 4 new v2 scenarios (1 train, 1 val, 1 test seed each, 16 runs) | all ran to the end of the 900 s (over-saturated scenarios finish with unfinished vehicles reported, not as completed), 0 collisions, 0 teleports, integrity block clean, new RSU fields present in logs |
 
-Not verified: GUI on a real desktop and population-wide local-client results. The live path is smoke-tested only and does not establish performance or radio/network behavior.
+Not verified: GUI on a real desktop and exhaustive population-wide local-client results. The representative local-only mode is the bounded comparison path. The live path is smoke-tested only and does not establish performance or radio/network behavior.
 
 ## Data and feature re-audit (2026-10-31)
 
@@ -108,7 +108,9 @@ Artifacts: paired results at `runs/phase2/stats_phase2_v2_20261031T182654Z/`; fi
 
 ### Broad local-only evaluator
 
-The population evaluator is implemented as `python -m trafma phase2-local-eval`. It enumerates the 17,529 eligible training clients (320 RSU and 17,209 vehicle) and records ineligible train clients with explicit reasons. Results append to `clients.jsonl`, retain one model artifact per completed client under `models/`, and can resume with `--resume`; `summary.json` and `metrics.csv` provide client-type, approach and scenario distributions. A capped CPU run completed for 1,000 selected clients at `runs/phase2/local_population_phase2_v2/`: 1,000 completed, 0 failed, 766 ineligible records, and 16,529 eligible clients not selected due to the cap. All 1,000 checkpoints loaded successfully with PyTorch and all referenced JSON/CSV artifacts parsed successfully. This is a capped, lexicographically selected subset (all rows are from `asymmetric_ew`), not a population-wide local-client accuracy claim.
+The evaluator is implemented as `python -m trafma phase2-local-eval`. Exhaustive mode enumerates the 17,529 eligible training clients (320 RSU and 17,209 vehicle) and remains an optional resumable research benchmark. Representative mode selects a deterministic stratified cohort and records its seed, strata and exact client IDs. Both modes record ineligible train clients with explicit reasons and retain one model artifact per completed client under `models/`; `summary.json` and `metrics.csv` provide client-type, approach and scenario distributions. The previously verified capped CPU run at `runs/phase2/local_population_phase2_v2/` remains unchanged and is not relabeled as representative.
+
+The representative selection invariants were verified on the full-v2 manifest for 256 clients with seed `20261101`: both RSU and vehicle types, all four approaches, all eight scenarios and all four training-window bands were present. The live smoke demo at `runs/phase2/phase2_live_demo_20261101_120508_37396/` completed three rounds with 12 vehicle and 12 RSU client-round participations; each round accepted all four RSU self-updates, produced four edge groups and advanced the global model version. Simulated time and wall-clock timings were recorded separately. This remains demonstration evidence, not a real-time or network-performance claim.
 
 ## Implemented Phase 1 changes recorded on 2026-10-30
 

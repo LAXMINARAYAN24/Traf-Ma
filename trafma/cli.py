@@ -108,12 +108,18 @@ def main(argv=None) -> int:
     ps.add_argument("--bootstrap-replicates", type=int, default=10000)
     ps.add_argument("--bootstrap-seed", type=int, default=20261031)
 
-    le = sub.add_parser("phase2-local-eval", help="evaluate local GRUs for every eligible training client")
+    le = sub.add_parser("phase2-local-eval", help="evaluate independent local GRUs for eligible training clients")
     le.add_argument("--config", default="configs/learning.yaml")
     le.add_argument("--dataset", help="override the dataset directory in the learning config")
     le.add_argument("--output", help="evaluation directory; must be new unless --resume is set")
     le.add_argument("--training-seed", type=int, help="override the local model seed")
     le.add_argument("--max-clients", type=int, help="bounded smoke limit; omit for every eligible client")
+    le.add_argument("--selection-mode", choices=["exhaustive", "stratified"], default="exhaustive",
+                    help="exhaustive benchmark or representative stratified local-only evaluation")
+    le.add_argument("--selection-seed", type=int, default=20261101,
+                    help="deterministic seed for stratified client selection")
+    le.add_argument("--representative-clients", type=int, default=256,
+                    help="number of clients for --selection-mode stratified")
     le.add_argument("--resume", action="store_true", help="resume completed client records in --output")
     le.add_argument("--device", choices=["cpu", "cuda"], default="cpu",
                     help="local model device; CUDA requires a CUDA-enabled PyTorch build")
@@ -272,6 +278,9 @@ def main(argv=None) -> int:
                     max_clients=a.max_clients,
                     resume=a.resume,
                     device=a.device,
+                    selection_mode=a.selection_mode,
+                    selection_seed=a.selection_seed,
+                    representative_clients=a.representative_clients,
                 )
             except LocalEvaluationError as e:
                 print(f"Phase 2 local evaluation error: {e}", file=sys.stderr)
