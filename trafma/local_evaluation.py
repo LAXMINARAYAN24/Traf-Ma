@@ -304,10 +304,16 @@ def run_broad_local_evaluation(
             )
         prior_ids = existing_manifest.get("selected_client_ids")
         current_ids = [client_id for client_id, _client in eligible]
-        if prior_ids is not None and prior_ids != current_ids:
-            raise LocalEvaluationError(
-                "resume client selection mismatch; keep selection mode, seed, and client count unchanged"
-            )
+        if prior_ids is not None:
+            if selection_mode == "exhaustive":
+                if current_ids[:len(prior_ids)] != prior_ids:
+                    raise LocalEvaluationError(
+                        "resume client selection mismatch; dataset ordering or eligibility changed"
+                    )
+            elif prior_ids != current_ids:
+                raise LocalEvaluationError(
+                    "resume client selection mismatch; keep stratified selection seed and client count unchanged"
+                )
     existing = {
         row["client_id"]: row for row in existing_rows
         if row.get("status") == "completed"
