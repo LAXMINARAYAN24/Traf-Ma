@@ -46,7 +46,7 @@ All items below are backed by saved artifacts and the test suite (177 tests pass
 
 | Item | Evidence |
 |---|---|
-| Left-hand traffic by default (`network.drive_side`) | `tests/test_netgen.py` (lane side, RSU kerb, turn labels, compass layout); TraCI check of every vehicle at 1.6 m left of its road axis; `examples/demo_n20_s42` regenerated, gate PASS including reproducibility |
+| Left-hand traffic by default (`network.drive_side`) | `tests/test_netgen.py` (lane side, RSU kerb, turn labels, compass layout); TraCI check of every vehicle at 1.6 m left of its road axis; stand-alone 20-vehicle demo regenerated, gate PASS including reproducibility (generated logs excluded from this branch) |
 | Right-hand mode equals the old implementation | 20 vehicles, seed 42, `drive_side=right` gives trace hash `e2c4145faae5...`, the hash recorded above |
 | Dataset split folders `data/<id>/{train,val,test}/<run>/` | `tests/test_dataset.py`; `phase2_compact_1500` generated, 0 split overlap, 0 collisions, 0 teleports, feature audit PASS with the same schema hash |
 | Central GRU with at least 50 epochs and early stopping | `runs/phase2_compact/central_gru_*`: 104 epochs, best epoch 89, minimum 50 enforced |
@@ -70,7 +70,7 @@ Known caveats of this update:
 | Current `python -m trafma doctor` (Windows, Python 3.12.7) | READY; SUMO 1.27.1, TraCI/sumolib 1.28.0 |
 | Pre-Phase-2 `python -m pytest` | 126 passed |
 | New focused feature/baseline tests | 8 passed |
-| `simulate --vehicles 20 --seed 42` trace SHA-256 | `e2c4145f...`, identical to `examples/demo_n20_s42`, with and without `agents.signal_broadcast` |
+| `simulate --vehicles 20 --seed 42` trace SHA-256 | `e2c4145f...` recorded for the earlier 20-vehicle demo; regenerate with `python -m trafma simulate --vehicles 20 --seed 42` (raw fixture excluded from this branch). |
 | `trafma gate --run <new run> --reproduce` | PASS (deterministic re-run identical) |
 | `trafma collect --config configs/data.yaml` | `dataset_report.txt` identical to the committed one |
 | Real SUMO run of the 4 new v2 scenarios (1 train, 1 val, 1 test seed each, 16 runs) | all ran to the end of the 900 s (over-saturated scenarios finish with unfinished vehicles reported, not as completed), 0 collisions, 0 teleports, integrity block clean, new RSU fields present in logs |

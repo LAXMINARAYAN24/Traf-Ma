@@ -54,7 +54,7 @@ truth about the code and the differences are listed in section 8.
 
 `runs/<id>/`: `manifest.json`, `summary.txt`, `scenario/`, `agents/rsu_*.jsonl`, `agents/veh_*.jsonl` (agent-local views only), `messages.jsonl` (transport trace; `message_trace: full` keeps every send, `exceptions` keeps only drops/rejections), `trace.jsonl` (deterministic per-step state; its SHA-256 is the reproducibility fingerprint), `global_snapshots.jsonl`, `evaluator/truth.jsonl`, `evaluator/events.jsonl`. Dataset runs additionally have `labels.jsonl` and `windows.jsonl` (window index and label only, **not** feature values). Live-federation runs also write `online_federation.jsonl` and `online_checkpoints/`.
 
-Dataset folders: `data/<dataset_id>/dataset_manifest.json` and `dataset_report.txt` are committed; `data/<dataset_id>/runs/` is git-ignored and regenerated deterministically by `trafma collect`. `examples/demo_n20_s42/` is one stand-alone demonstration run (not part of any dataset).
+Dataset folders: `data/<dataset_id>/dataset_manifest.json` and `dataset_report.txt` are committed; `data/<dataset_id>/runs/` is git-ignored and regenerated deterministically by `trafma collect`. Standalone demonstration runs are generated on demand and are not committed as raw logs.
 
 ## 6. Datasets
 
