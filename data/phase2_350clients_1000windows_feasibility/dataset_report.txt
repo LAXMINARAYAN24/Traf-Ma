@@ -1,0 +1,22 @@
+=== dataset report ===
+congestion rule : queue_zone/zone_len < 0.1 -> 0 free; < 0.35 -> 1 moderate; else 2 heavy
+horizon 30.0 s, history 10 steps, trainable if >= 16 windows
+
+run                      split    N  dep  arr unf coll rsuLogs
+heavy_long_hold_s6101    train  500  500  500   0    0 ok
+heavy_long_hold_s6201    val    500  500  500   0    0 ok
+heavy_long_hold_s6301    test   500  500  500   0    0 ok
+
+split/client-type   clients trainable windows   label hist [free, moderate, heavy]
+test/rsu                  4         4    7044   [3180, 586, 3278]
+test/vehicle            500       497  142518   [43314, 11744, 87460]
+train/rsu                 4         4    7044   [3189, 421, 3434]
+train/vehicle           500       499  144682   [44404, 10484, 89794]
+val/rsu                   4         4    7044   [3101, 576, 3367]
+val/vehicle             500       499  144578   [44022, 11122, 89434]
+
+measured non-IID skew (train, trainable clients; TV distance of client label dist. to pooled):
+  rsu      n=4 mean TV 0.0315, max 0.0588, pooled [3189, 421, 3434]
+  vehicle  n=499 mean TV 0.0484, max 0.6931, pooled [44393, 10482, 89794]
+
+integrity: split overlap=none; window rule violations=0; evaluator keys in agent logs=none; complete RSU logs=True; collisions=0, teleports=0

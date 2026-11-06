@@ -1,0 +1,11 @@
+{
+  "train": [
+    "heavy_long_hold_s6101"
+  ],
+  "val": [
+    "heavy_long_hold_s6201"
+  ],
+  "test": [
+    "heavy_long_hold_s6301"
+  ]
+}
