@@ -49,26 +49,26 @@ python -m trafma doctor
 The following sequence covers the project milestones available on this branch. The retained v1 and 350v250 collection configs use separate dataset IDs. Collect each dataset once, then reuse its split for matched model comparisons.
 
 ```bash
-python -m trafma doctor
-python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --gui
-python -m trafma simulate --vehicles 20 --seed 42             # headless
-python -m trafma gate --run runs/<run-id> --reproduce --pytest
-python -m trafma report --run runs/<run-id>
-python -m trafma replay --run runs/<run-id> --every 10
-python -m trafma collect --config configs/data.yaml           # v1: 24 runs
-python -m trafma baseline --config configs/learning.yaml
-python -m trafma train --method central --config configs/learning.yaml
-python -m trafma train --method local --client asymmetric_ew_s100/rsu_E --config configs/learning.yaml
-python -m trafma fedavg --config configs/learning.yaml        # flat
-python -m trafma fedavg --iid-control --config configs/learning.yaml
-python -m trafma fedavg --transient-participation --config configs/learning.yaml
-python -m trafma fedavg --hierarchical --config configs/learning.yaml
-python -m trafma fedavg --hierarchical --rsu-self-update false --config configs/learning.yaml
-python -m trafma phase2-report --help
-python -m trafma phase2-stats --help
-python -m trafma phase2-local-eval --help
-python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --duration 180 --online-federation --learning-config configs/learning.yaml
-python -m pytest
+python -m trafma doctor  # Check the Python/SUMO setup by starting, stepping and closing a minimal SUMO process.
+python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --gui  # Run a seeded 20-vehicle simulation and show SUMO's GUI.
+python -m trafma simulate --vehicles 20 --seed 42  # Run a seeded 20-vehicle simulation headlessly with default settings.
+python -m trafma gate --run runs/<run-id> --reproduce --pytest  # Check the saved run's reproducibility and run its Phase 1 gate tests.
+python -m trafma report --run runs/<run-id>  # Generate plots and a summary report from a saved simulation run.
+python -m trafma replay --run runs/<run-id> --every 10  # Replay saved run logs, showing every tenth step; SUMO is not needed.
+python -m trafma collect --config configs/data.yaml  # Collect the v1 labelled dataset (24 simulation runs).
+python -m trafma baseline --config configs/learning.yaml  # Fit and evaluate the configured non-neural baseline models.
+python -m trafma train --method central --config configs/learning.yaml  # Train and evaluate one GRU using pooled training data.
+python -m trafma train --method local --client asymmetric_ew_s100/rsu_E --config configs/learning.yaml  # Train/evaluate a GRU using only the selected RSU client's data.
+python -m trafma fedavg --config configs/learning.yaml  # Run flat FedAvg: clients send model updates directly to the global aggregator.
+python -m trafma fedavg --iid-control --config configs/learning.yaml  # Run an IID-partition control to compare against naturally distributed clients.
+python -m trafma fedavg --transient-participation --config configs/learning.yaml  # Run FedAvg with vehicle-client participation varying across rounds.
+python -m trafma fedavg --hierarchical --config configs/learning.yaml  # Run hierarchical FedAvg: vehicle updates aggregate through RSUs, then globally.
+python -m trafma fedavg --hierarchical --rsu-self-update false --config configs/learning.yaml  # Run hierarchical FedAvg with RSUs aggregating vehicle updates but not training on their own data.
+python -m trafma phase2-report --help  # Show options for reporting saved Phase 2 baseline and model runs.
+python -m trafma phase2-stats --help  # Show options for paired run-level bootstrap statistics across seeds.
+python -m trafma phase2-local-eval --help  # Show options for evaluating independent client-local GRUs.
+python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --duration 180 --online-federation --learning-config configs/learning.yaml  # Run SUMO while collecting delayed labels and performing live federated rounds.
+python -m pytest  # Run the repository's automated test suite.
 ```
 
 For the resumable full-v2 five-seed sweep and repeatable live demo, use `scripts/run_phase2_full_v2_sweep.ps1` and `scripts/demo_phase2_live.ps1` in Windows PowerShell.
