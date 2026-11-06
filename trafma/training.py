@@ -13,7 +13,7 @@ import statistics
 import subprocess
 import sys
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Optional, Union
 
@@ -25,6 +25,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from .baseline import BaselineError, _Metrics, load_learning_config
 from .features import FEATURE_DIM, FEATURE_SCHEMA_HASH, SEQUENCE_LENGTH, FeatureWindow, iter_feature_windows
 from .models import GRUPredictor, multitask_loss
+from .progress import finish_progress, update_progress
 
 
 class TrainingError(ValueError):
@@ -35,6 +36,14 @@ RESERVED_TRAINING_SEEDS = frozenset(range(400, 405))
 
 
 def _validate_training(config: dict) -> dict:
+    """Handles  validate training for the values provided.
+
+    Args:
+        config: Value used by this function.
+
+    Returns:
+        The result produced by this function.
+    """
     training = config.get("training")
     if not isinstance(training, dict):
         raise TrainingError("learning config must define training settings")
@@ -62,12 +71,15 @@ def _validate_training(config: dict) -> dict:
     if training["seed"] in RESERVED_TRAINING_SEEDS:
         raise TrainingError("training.seed 400-404 are reserved and must remain unused")
     device = training.get("device")
-    if device not in ("cpu", "cuda"):
-        raise TrainingError("training.device must be 'cpu' or 'cuda'")
+    if device not in ("cpu", "cuda", "auto"):
+        raise TrainingError("training.device must be 'cpu', 'cuda' or 'auto' (CUDA if available, else CPU)")
     if device == "cuda" and not torch.cuda.is_available():
         raise TrainingError(
             "training.device=cuda was requested, but this PyTorch installation has no available CUDA device"
         )
+    threads = training.get("num_threads", 0)
+    if isinstance(threads, bool) or not isinstance(threads, int) or threads < 0:
+        raise TrainingError("training.num_threads must be an integer >= 0 (0 = use every CPU core)")
     if not isinstance(training.get("deterministic"), bool):
         raise TrainingError("training.deterministic must be boolean")
     if training["regression_loss_weight"] == 0 and training["classification_loss_weight"] == 0:
@@ -75,11 +87,43 @@ def _validate_training(config: dict) -> dict:
     return training
 
 
+def resolve_device(training: dict) -> torch.device:
+    """'auto' -> the first CUDA GPU if PyTorch can see one, otherwise the CPU."""
+    requested = str(training.get("device", "cpu"))
+    if requested == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return torch.device(requested)
+
+
+def configure_threads(training: dict) -> int:
+    """Use several CPU cores for CPU training. num_threads 0 (default) = every logical core.
+
+    Only matters on the CPU; on a GPU the heavy maths runs on the card. Returns the intra-op thread count in use.
+    """
+    wanted = int(training.get("num_threads", 0)) or (os.cpu_count() or 1)
+    torch.set_num_threads(wanted)
+    try:                                   # may only be set once per process, before parallel work starts
+        torch.set_num_interop_threads(max(1, min(wanted, 4)))
+    except RuntimeError:
+        pass
+    return torch.get_num_threads()
+
+
 def _seed_everything(seed: int, deterministic: bool):
+    """Handles  seed everything for the values provided.
+
+    Args:
+        seed: Value used by this function.
+        deterministic: Value used by this function.
+
+    Returns:
+        None.
+    """
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if deterministic:
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")   # required for deterministic CUDA matmuls
         torch.use_deterministic_algorithms(True)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -137,6 +181,14 @@ def _sample_windows(dataset_dir: Path, split: str, maximum: int, seed: int,
 
 
 def _to_dataset(samples: list[FeatureWindow]) -> TensorDataset:
+    """Handles  to dataset for the values provided.
+
+    Args:
+        samples: Value used by this function.
+
+    Returns:
+        The result produced by this function.
+    """
     features = np.asarray([sample.features for sample in samples], dtype=np.float32)
     queue_ratios = np.asarray([sample.queue_m / sample.zone_m for sample in samples], dtype=np.float32)
     labels = np.asarray([sample.congestion_class for sample in samples], dtype=np.int64)
@@ -148,6 +200,17 @@ def _to_dataset(samples: list[FeatureWindow]) -> TensorDataset:
 
 
 def _loss_for(model, batches, training, optimizer=None):
+    """Handles  loss for for the values provided.
+
+    Args:
+        model: Value used by this function.
+        batches: Value used by this function.
+        training: Value used by this function.
+        optimizer: Value used by this function.
+
+    Returns:
+        The result produced by this function.
+    """
     train_mode = optimizer is not None
     model.train(train_mode)
     totals = {"loss": 0.0, "regression": 0.0, "classification": 0.0, "samples": 0}
@@ -188,8 +251,18 @@ def _loss_for(model, batches, training, optimizer=None):
 
 
 def _train_model(training, train_samples, val_samples):
+    """Handles  train model for the values provided.
+
+    Args:
+        training: Value used by this function.
+        train_samples: Value used by this function.
+        val_samples: Value used by this function.
+
+    Returns:
+        The result produced by this function.
+    """
     _seed_everything(int(training["seed"]), bool(training["deterministic"]))
-    device = torch.device(str(training["device"]))
+    device = resolve_device(training)
     model = GRUPredictor(
         input_size=FEATURE_DIM,
         hidden_size=int(training["hidden_size"]),
@@ -229,7 +302,13 @@ def _train_model(training, train_samples, val_samples):
         else:
             stale_epochs += 1
             if stale_epochs >= int(training["early_stopping_patience"]):
+                update_progress("GRU training", epoch, int(training["epochs"]),
+                                f"val loss {validation_loss['loss']:.4f}; early stopping")
+                finish_progress()
                 break
+        update_progress("GRU training", epoch, int(training["epochs"]),
+                        f"val loss {validation_loss['loss']:.4f}")
+    finish_progress()
     if best_state is None:
         raise TrainingError("no finite validation checkpoint was produced")
     model.load_state_dict(best_state)
@@ -237,6 +316,15 @@ def _train_model(training, train_samples, val_samples):
 
 
 def _prediction_metrics_from_saved(path: Path, requested_split: str) -> dict:
+    """Handles  prediction metrics from saved for the values provided.
+
+    Args:
+        path: Value used by this function.
+        requested_split: Value used by this function.
+
+    Returns:
+        The result produced by this function.
+    """
     metrics = defaultdict(_Metrics)
     run_metrics = defaultdict(_Metrics)
     with path.open(newline="", encoding="utf-8") as predictions:
@@ -274,6 +362,16 @@ def _prediction_metrics_from_saved(path: Path, requested_split: str) -> dict:
 
 
 def _predict(model, samples: list[FeatureWindow], batch_size: int):
+    """Handles  predict for the values provided.
+
+    Args:
+        model: Value used by this function.
+        samples: Value used by this function.
+        batch_size: Value used by this function.
+
+    Returns:
+        The result produced by this function.
+    """
     loader = DataLoader(_to_dataset(samples), batch_size=batch_size, shuffle=False, num_workers=0)
     predicted_ratios = []
     predicted_classes = []
@@ -295,6 +393,11 @@ def _predict(model, samples: list[FeatureWindow], batch_size: int):
 
 
 def _repo_state() -> dict:
+    """Handles  repo state for the values provided.
+
+    Returns:
+        The result produced by this function.
+    """
     commit_result = subprocess.run(["git", "rev-parse", "--verify", "HEAD"],
                                    capture_output=True, text=True, check=False)
     status_result = subprocess.run(["git", "status", "--porcelain"],
@@ -308,7 +411,9 @@ def _repo_state() -> dict:
 def run_gru_training(config_path: Union[str, Path], method: str = "central",
                      dataset_override: Optional[str] = None,
                      client_id: Optional[str] = None,
-                     training_seed: Optional[int] = None) -> Path:
+                     training_seed: Optional[int] = None,
+                     device_override: Optional[str] = None,
+                     num_threads_override: Optional[int] = None) -> Path:
     """Train a central pooled GRU or one explicit offline trajectory-client GRU."""
     if method not in ("central", "local"):
         raise TrainingError("method must be central or local")
@@ -324,6 +429,10 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
         if isinstance(training_seed, bool) or not isinstance(training_seed, int):
             raise TrainingError("training_seed must be an integer")
         config["training"]["seed"] = training_seed
+    if device_override is not None:
+        config["training"]["device"] = device_override
+    if num_threads_override is not None:
+        config["training"]["num_threads"] = num_threads_override
     training = _validate_training(config)
     evaluation_seed = config.get("evaluation_seed", training["seed"])
     if isinstance(evaluation_seed, bool) or not isinstance(evaluation_seed, int):
@@ -335,11 +444,38 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
         or evaluation_windows_per_run < 1
     ):
         raise TrainingError("evaluation_windows_per_run must be a positive integer")
+    evaluation_windows_by_type = config.get("evaluation_windows_by_type")
+    if evaluation_windows_by_type is not None and (
+        isinstance(evaluation_windows_by_type, bool)
+        or not isinstance(evaluation_windows_by_type, int)
+        or evaluation_windows_by_type < 1
+    ):
+        raise TrainingError("evaluation_windows_by_type must be a positive integer")
+    training_windows_by_type = config.get("training_windows_by_type")
+    if training_windows_by_type is not None:
+        if isinstance(training_windows_by_type, dict):
+            unknown_types = set(training_windows_by_type) - {"vehicle", "rsu"}
+            if unknown_types:
+                raise TrainingError(
+                    f"training_windows_by_type has unknown client types: {sorted(unknown_types)}"
+                )
+            if not training_windows_by_type or any(
+                isinstance(count, bool) or not isinstance(count, int) or count < 1
+                for count in training_windows_by_type.values()
+            ):
+                raise TrainingError(
+                    "training_windows_by_type counts must be positive integers for vehicle/rsu"
+                )
+        elif (isinstance(training_windows_by_type, bool)
+              or not isinstance(training_windows_by_type, int)
+              or training_windows_by_type < 1):
+            raise TrainingError("training_windows_by_type must be a positive integer or type-to-count mapping")
     dataset_dir = Path(dataset_override or config["dataset"])
     manifest_path = dataset_dir / "dataset_manifest.json"
     if not manifest_path.is_file():
         raise TrainingError(f"dataset manifest not found: {manifest_path}")
     dataset_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    threads_in_use = configure_threads(training)
     _seed_everything(int(training["seed"]), bool(training["deterministic"]))
     start_utc = dt.datetime.now(dt.timezone.utc)
     wall_started = time.perf_counter()
@@ -367,14 +503,52 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
             per_run_maximum=evaluation_windows_per_run,
         )
     else:
-        train_samples = _sample_windows(dataset_dir, "train", int(training["max_train_windows"]),
-                                        int(training["seed"]))
-        val_samples = _sample_windows(dataset_dir, "val", int(training["max_validation_windows"]),
-                                      evaluation_seed + 1,
-                                      per_run_maximum=evaluation_windows_per_run)
-        test_samples = _sample_windows(dataset_dir, "test", int(training["max_validation_windows"]),
-                                       evaluation_seed + 2,
-                                       per_run_maximum=evaluation_windows_per_run)
+        if training_windows_by_type is None:
+            train_samples = _sample_windows(dataset_dir, "train", int(training["max_train_windows"]),
+                                            int(training["seed"]))
+        elif isinstance(training_windows_by_type, dict):
+            train_samples = [
+                sample
+                for index, kind in enumerate(("vehicle", "rsu"))
+                if kind in training_windows_by_type
+                for sample in _sample_windows(
+                    dataset_dir, "train", training_windows_by_type[kind],
+                    int(training["seed"]) + index, client_type=kind,
+                )
+            ]
+        else:
+            train_samples = [
+                sample
+                for index, kind in enumerate(("vehicle", "rsu"))
+                for sample in _sample_windows(
+                    dataset_dir, "train", training_windows_by_type,
+                    int(training["seed"]) + index, client_type=kind,
+                )
+            ]
+        if evaluation_windows_by_type is None:
+            val_samples = _sample_windows(dataset_dir, "val", int(training["max_validation_windows"]),
+                                          evaluation_seed + 1,
+                                          per_run_maximum=evaluation_windows_per_run)
+            test_samples = _sample_windows(dataset_dir, "test", int(training["max_validation_windows"]),
+                                           evaluation_seed + 2,
+                                           per_run_maximum=evaluation_windows_per_run)
+        else:
+            val_samples = [
+                sample
+                for index, kind in enumerate(("vehicle", "rsu"))
+                for sample in _sample_windows(
+                    dataset_dir, "val", evaluation_windows_by_type,
+                    evaluation_seed + 101 + index, client_type=kind,
+                )
+            ]
+            test_samples = [
+                sample
+                for index, kind in enumerate(("vehicle", "rsu"))
+                for sample in _sample_windows(
+                    dataset_dir, "test", evaluation_windows_by_type,
+                    evaluation_seed + 201 + index, client_type=kind,
+                )
+            ]
     if not train_samples or not val_samples or not test_samples:
         raise TrainingError("train, validation and test splits must each contain sampled windows")
     if set(sample.run_id for sample in train_samples) & set(sample.run_id for sample in val_samples + test_samples):
@@ -407,7 +581,7 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
         "best_epoch": best_epoch,
     }, checkpoint_path)
     checkpoint_hash = hashlib.sha256(checkpoint_path.read_bytes()).hexdigest()
-    device = torch.device(str(training["device"]))
+    device = resolve_device(training)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     if checkpoint.get("feature_schema_hash") != FEATURE_SCHEMA_HASH:
         raise TrainingError("saved checkpoint feature schema does not match the current adapter")
@@ -469,10 +643,20 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
         "test_run_ids": sorted(dataset_manifest["splits"]["test"]),
         "selected_window_counts": {"train": len(train_samples), "validation": len(val_samples),
                                    "test": len(test_samples)},
+        "selected_window_counts_by_type": {
+            split_name: dict(Counter(sample.client_type for sample in samples))
+            for split_name, samples in (("train", train_samples), ("validation", val_samples), ("test", test_samples))
+        },
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "cpu": {"processor": platform.processor(), "logical_cores": os.cpu_count()},
         "device": str(device),
+        "device_requested": training["device"],
+        "cpu_threads": threads_in_use,
+        "epochs_run": len(history),
+        "max_epochs": int(training["epochs"]),
+        "early_stopping_patience": int(training["early_stopping_patience"]),
+        "early_stopped": len(history) < int(training["epochs"]),
         "cuda": (
             {
                 "name": torch.cuda.get_device_name(device.index or 0),
@@ -518,7 +702,11 @@ def run_gru_training(config_path: Union[str, Path], method: str = "central",
             "",
             f"- Dataset: `{dataset_dir.name}`; feature schema hash `{FEATURE_SCHEMA_HASH}`.",
             f"- Train/validation/test sampled windows: {len(train_samples)}/{len(val_samples)}/{len(test_samples)}.",
+            f"- Epochs trained: {len(history)} (maximum {manifest['max_epochs']}, "
+            f"early-stopping patience {manifest['early_stopping_patience']}; "
+            f"{'stopped early' if manifest['early_stopped'] else 'ran to the maximum'}).",
             f"- Best checkpoint epoch: {best_epoch}; parameter count: {manifest['parameters']}.",
+            f"- Device: {manifest['device']} (requested `{manifest['device_requested']}`); CPU threads: {threads_in_use}.",
             ("- Model is a pooled offline reference; it does not preserve client-local training."
              if method == "central" else
              f"- Model trained only on trajectory client `{client_id}`; test rows are held-out runs "

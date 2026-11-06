@@ -1,110 +1,318 @@
-# TRAF-MA — SUMO simulation layer
+# TRAF-MA: SUMO simulation, datasets and Phase 2 learning
 
-Complete SUMO side of TRAF-MA: a four-arm signalised intersection, N vehicle agents, **four RSUs (one per road)**,
-a lossy/delayed V2I → I2C message path, an edge coordinator, full run logging, and labelled data generation.
+TRAF-MA simulates a four-arm signalised intersection with vehicle agents, four roadside units (RSUs), a lossy message path and an edge coordinator. It generates labelled datasets and trains a GRU congestion predictor, centrally and with three-tier hierarchical federated learning (HFL).
 
+Traffic drives on the **left by default** (Indian norm). Right-hand traffic is one setting away.
+
+## 1. Architecture at a glance
+
+```text
+vehicle agents (N)  --V2I-->  RSU-N / RSU-E / RSU-S / RSU-W  --I2C-->  edge coordinator
+ (own view, 100 m)            (one per road, 150 m zone)               (validate, dedup, fuse)
 ```
-vehicle agents (N)  --V2I-->  RSU-N / RSU-E / RSU-S / RSU-W  --I2C-->  edge coordinator  -->  global per-approach state
-   (own view, 100 m)          (one per road, 150 m zone)               (validate, dedup, keep
-                              senses its road + relays its children     direct vs relayed evidence apart)
+
+```text
+Federated learning (three tiers)
+
+tier 1   vehicle clients + RSU sensor learners      train locally, send model updates
+tier 2   RSU edge aggregators (N, E, S, W)          average their own group
+tier 3   global coordinator                         averages the four edge models
 ```
 
-This implements **Phase 1 (P1.1–P1.6)** of `TRAF_MA_imp_plan.pdf` and the SUMO-side **data generation of Phase 2 (P2.1)**.
-Per your instruction, the plan's "camera agents" are **RSUs**: one per road, placed beside the road at its stop line.
-Phase 2 includes audited features, baselines, GRU training, offline flat and hierarchical FedAvg, replay controls, saved-artifact reporting, paired full-v2 evaluation, an all-eligible-client local-evaluation workflow, and an optional live SUMO federation path. Trust, attacks and the full dashboard are Phase 3.
+```text
+Dataset flow
 
-## Quick start (Windows PowerShell or Linux/macOS)
+SUMO run -> agent logs + evaluator labels -> windows (10 steps -> label 30 s ahead)
+         -> data/<dataset>/{train,val,test}/<run>/ -> central GRU, FedAvg, baselines -> reports
+```
+
+More detail: [docs/ARCHITECTURE_AS_BUILT.md](docs/ARCHITECTURE_AS_BUILT.md).
+
+## 2. Quick start (Windows PowerShell or Linux/macOS)
+
+Run these from the repository root. Use the activation command for your shell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt   # includes SUMO through the eclipse-sumo wheel
+python -m trafma doctor           # starts, steps and closes a minimal SUMO process
+```
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate            # Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt   # installs SUMO itself via the eclipse-sumo wheel
-python -m trafma doctor           # P1.1: starts, steps and closes a minimal SUMO process
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m trafma doctor
+```
+
+The following sequence covers the main project milestones. Each collection config has its own `dataset_id`, so the v1, v2-dev, full-v2 and 350v250 datasets are separate. Collect a dataset once, then reuse that same split for its matched model comparisons; use a new `dataset_id` when creating independent data.
+
+```bash
+python -m trafma doctor
 python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --gui
 python -m trafma simulate --vehicles 20 --seed 42             # headless
-python -m trafma gate   --run runs/<run-id> --reproduce --pytest   # Phase 1 gate, machine-checked
-python -m trafma report --run runs/<run-id>                   # layout.png + queues.png
-python -m trafma replay --run runs/<run-id> --every 10        # replay from logs, no SUMO needed
-python -m trafma collect --config configs/data.yaml           # P2.1 labelled dataset v1 (24 runs, ~4 min)
-python -m trafma collect --config configs/data_v2_dev.yaml    # P2.1 dataset v2, dev size (48 runs, est. ~1.3 GB)
-python -m trafma collect --config configs/data_v2.yaml        # P2.1 dataset v2, full (160 runs, est. 4-5 GB; use --resume)
-python -m trafma features-audit --dataset data/phase2_v2_dev  # audit agent-local features and split integrity
-python -m trafma baseline --config configs/learning.yaml      # fit/evaluate clean non-neural baselines
+python -m trafma gate --run runs/<run-id> --reproduce --pytest
+python -m trafma report --run runs/<run-id>
+python -m trafma replay --run runs/<run-id> --every 10
+python -m trafma collect --config configs/data.yaml           # v1: 24 runs
+python -m trafma collect --config configs/data_v2_dev.yaml    # v2 development: 48 runs
+python -m trafma collect --config configs/data_v2.yaml --resume  # full v2: 160 runs
+python -m trafma features-audit --dataset data/phase2_v2_dev
+python -m trafma baseline --config configs/learning.yaml
 python -m trafma train --method central --config configs/learning.yaml
 python -m trafma train --method local --client asymmetric_ew_s100/rsu_E --config configs/learning.yaml
-python -m trafma fedavg --config configs/learning.yaml        # flat natural client cohort
+python -m trafma fedavg --config configs/learning.yaml        # flat
 python -m trafma fedavg --iid-control --config configs/learning.yaml
 python -m trafma fedavg --transient-participation --config configs/learning.yaml
 python -m trafma fedavg --hierarchical --config configs/learning.yaml
 python -m trafma fedavg --hierarchical --rsu-self-update false --config configs/learning.yaml
-python -m trafma phase2-report --help                         # report saved baseline/experiment runs
-python -m trafma phase2-stats --help                          # paired run-level bootstrap after five seeds/method
-.\scripts\run_phase2_full_v2_sweep.ps1                        # resumable local full-v2 five-seed sweep
-python -m trafma phase2-local-eval --help                     # exhaustive or representative local-only evaluator
-# representative local-only benchmark (256 deterministic stratified clients)
-python -m trafma phase2-local-eval --config configs/learning.yaml --dataset data/phase2_v2 \
-  --output runs/phase2/local_representative_phase2_v2 --selection-mode stratified \
-  --selection-seed 20261101 --representative-clients 256
-# add --device cuda for a CUDA-enabled PyTorch installation
-python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --duration 180 --online-federation
-.\scripts\demo_phase2_live.ps1                                 # repeatable live-federation smoke demo
-python -m trafma inspect --run runs/<run-id> --vehicle veh_0005   # one agent's local view + the path its reports took
-python -m trafma inspect --run runs/<run-id> --rsu E              # one RSU's view, signal and detected vehicles
-python -m pytest                                              # run all tests
+python -m trafma phase2-report --help
+python -m trafma phase2-stats --help
+python -m trafma phase2-local-eval --help
+python -m trafma simulate --config configs/phase1.yaml --vehicles 20 --seed 42 --duration 180 --online-federation --learning-config configs/learning.yaml
+python -m pytest
 ```
-`phase2-local-eval --selection-mode exhaustive` is the optional resumable research benchmark over all eligible clients. `--selection-mode stratified` is the bounded representative local-only benchmark; it records its seed and selected client IDs. Both are independent local training, not offline replay federation or live federation.
 
-`--gui` colours vehicles: **green** = inside its RSU zone, **red** = halted, **yellow** = approaching, **grey** = in junction / leaving.
-RSUs show as blue squares, RSU sensing zones as cyan strips on each incoming arm.
-Any config value can be overridden: `--set agents.rsu_zone_m=120 --set comms.v2i.loss_prob=0.1`.
-`--set agents.signal_broadcast=true` makes each RSU broadcast its road's signal state and time-to-change to its vehicles (default off).
-Pin: `requirements.txt` fixes SUMO/TraCI/sumolib to 1.28.0.
+For the resumable full-v2 five-seed sweep and repeatable live demo, use `scripts/run_phase2_full_v2_sweep.ps1` and `scripts/demo_phase2_live.ps1` in Windows PowerShell.
 
-## What was built, per plan milestone
+The existing 350v250 experiment ID is `runs/phase2_350v250_20261105_223954`. In the current workspace, replay the saved training-split SUMO run with its existing run ID:
 
-| Milestone | Module | Evidence |
+```powershell
+$datasetRun = "data/phase2_350clients_1000windows_feasibility/train/heavy_long_hold_s6101"
+python -m trafma replay --run $datasetRun --every 10
+python -m trafma inspect --run $datasetRun --rsu N
+```
+
+To open a fresh SUMO GUI demo, keep it under that same experiment folder and give the new simulation a unique child run ID. This preserves the existing 350v250 ID and avoids overwriting its training artifacts:
+
+```powershell
+$comparisonRoot = "runs/phase2_350v250_20261105_223954"
+$stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$guiId = "gui_n20_s42_$stamp"
+python -m trafma simulate --vehicles 20 --seed 42 --gui --run-id $guiId --output-dir "$comparisonRoot/demo"
+$guiRun = "$comparisonRoot/demo/$guiId"
+python -m trafma gate --run $guiRun --reproduce --pytest
+python -m trafma report --run $guiRun
+python -m trafma replay --run $guiRun --every 10
+python -m trafma inspect --run $guiRun --vehicle veh_0005
+```
+
+The GUI command creates a new simulation run because a saved log replay cannot reopen SUMO's GUI. If you repeat it, the timestamp gives it a new child ID while keeping the same 350v250 parent folder.
+
+Run the full software test suite with:
+
+```bash
+python -m pytest
+```
+
+The GUI has been verified under a virtual display; a real desktop GUI check remains open. For model/device guidance, see [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md).
+
+## 3. Driving side
+
+`network.drive_side` is `left` (default) or `right`. Layout, signal plan, demand, agents, messages and labels are otherwise identical.
+
+```bash
+python -m trafma simulate --vehicles 20 --seed 42                                  # left-hand
+python -m trafma simulate --vehicles 20 --seed 42 --set network.drive_side=right   # original behaviour
+```
+
+- The network is built with netconvert `--lefthand true`: each lane keeps to the left of its road.
+- Turn names are the driver's own. N to E is a left turn for both settings. With left-hand traffic the left turn is the short one and the right turn crosses oncoming traffic. Split phasing means no two approaches are ever green together, so neither conflicts.
+- RSUs stand on the kerb side of each road (left of travel for left-hand traffic).
+- `netgen.py` checks after building that lanes are on the requested side and the arms are still N, E, S, W, and stops otherwise.
+- `drive_side=right` reproduces the previous implementation exactly (trace hash `e2c4145f...` for 20 vehicles, seed 42). Left-hand gives `aa69daee...`.
+- Older `phase2_v1`, `phase2_v2_dev` and `phase2_v2` data, where present, were generated right-hand. Treat them as legacy records and do not mix them with left-hand runs.
+
+## 4. Datasets and the train / validation / test split
+
+`python -m trafma collect --config <yaml>` writes each simulation run into its train, validation or test folder.
+
+```text
+data/phase2_350clients_1000windows_feasibility/
+  train/<scenario>_s<seed>/
+  val/<scenario>_s<seed>/
+  test/<scenario>_s<seed>/
+  splits.json
+  dataset_manifest.json
+  dataset_report.txt
+  feature_audit.json
+  sample_budget.md
+```
+
+- The split is by whole run (disjoint seeds), so a window never crosses splits.
+- If a collect config has no `splits:` section the default is train seeds 1, 2, 3; val seed 4; test seeds 5, 6.
+- Only the names `train`, `val` and `test` are allowed, and a seed may appear in one split only.
+- Old datasets that kept runs in `<dataset>/runs/` still load.
+
+| Dataset | Current config | Runs and split |
 |---|---|---|
-| P1.1 environment | `doctor.py`, `requirements.txt` | `trafma doctor` → READY; versions in every `manifest.json` |
-| P1.2 intersection | `netgen.py` | 4 in + 4 out roads, 12 explicit connections, split-phase signal (25 s G / 3 s Y / 2 s all-red, 120 s cycle); no two approaches ever green together (test) |
-| P1.3 reproducible traffic | `demand.py` | seeded; same seed ⇒ byte-identical routes **and** identical per-step trace hash; N, balanced/asymmetric/custom demand, turn mix; invalid N rejected |
-| P1.4 agents + observation boundary | `agents.py`, `sensors.py` | 4 RSUs exist from t=0 to end; vehicles created on SUMO departure, retired on arrival; ownership = origin road, persists to arrival; out-of-coverage fields are `None` + listed in `unavailable` |
-| P1.5 messages + coordinator | `messages.py`, `channel.py`, `coordinator.py` | typed envelope (schema/version/seq/time/hops/evidence); duplicate, stale, out-of-order, malformed, forged-provenance all rejected and counted; RSU-sensed vs relayed-child evidence never summed |
-| P1.6 logs + demo | `runlog.py`, `runner.py`, `replay.py`, `gate.py` | manifest, per-agent logs, message trace, per-step trace, global snapshots, evaluator truth, console summary, replay, gate |
-| P2.1 data + labels | `dataset.py`, `collect.py` | scenarios × seeds, 30 s-ahead labels, windows, coverage audit, label histograms, disjoint split manifest, measured non-IID skew |
-| P2 prep (schema 1.1) | `sensors.py`, `messages.py`, `configs/data_v2*.yaml` | RSU also reports `mean_accel_mps2` and `mean_dist_to_stop_m`; optional signal broadcast to vehicles; v2 dataset adds 2 demand levels, an E/W-heavy and a single-heavy-arm scenario; full grid has 10/5/5 seeds per scenario, dev grid 3/1/2 |
-| P1.6 inspector | `inspector.py` | `trafma inspect` prints one agent's local view and the vehicle → RSU → coordinator path of its reports, from saved logs |
-| P2.2-P2.7 development slice | `features.py`, `baseline.py`, `training.py`, `federation.py`, `federated_training.py`, `phase2_report.py` | Full v1/v2_dev/full-v2 feature audits; local/central GRU; flat and hierarchical FedAvg, IID and transient replay; saved Markdown/HTML report and plots. Full-v2 five-seed methods, paired run-level statistics and report are complete; the all-eligible-client local-only evaluation remains open. |
+| `phase2_v1` | `configs/data.yaml` | 24 runs; 3 train / 1 validation / 2 test seeds |
+| `phase2_350clients_1000windows_feasibility` | `configs/data_350clients_1000windows_feasibility.yaml` | 3 runs; one train, one validation, one test run; each simulates 500 vehicles for 1,800 s |
 
-## The RSUs (one per road)
+The 350v250 dataset is present locally at `data/phase2_350clients_1000windows_feasibility/`; generated data is not included in the source-only GitHub branch. On a fresh clone, collect it once with the dedicated config before training. Do not collect it again for each model: the four methods intentionally reuse the same train/validation/test split for a matched comparison. To create independent data, use a **new `dataset_id`** and point the learning configs at that new dataset directory. `--resume` is for continuing the same collection, not for creating an independent dataset.
 
-* `rsu_N/E/S/W`, each beside its road at the stop line (8 m lateral offset), alive for the whole run.
-* **Senses its own road only:** vehicles on its incoming edge within `agents.rsu_zone_m` (150 m) of the stop line, vehicles on its outgoing edge within 100 m, and the signal head of its road. Reports count, halted count, queue length (contiguous halted chain), mean speed, mean acceleration, mean distance to the stop line, density, waiting times, signal state/time-to-change.
-* **Relays its children:** every vehicle that departed on its road reports to it (V2I); the RSU validates, de-duplicates, appends itself to the hop path (`[veh, rsu_X]`), and forwards a bundle to the coordinator (I2C).
-* A vehicle keeps its parent RSU **through the junction and onto the outgoing road until arrival**; once off its incoming road all neighbour/leader/signal fields are masked.
+Available collection commands:
 
-## Run artefacts (`runs/<run-id>/`)
+```powershell
+python -m trafma collect --config configs/data.yaml            # legacy v1; writes data/phase2_v1
+python -m trafma collect --config configs/data_350clients_1000windows_feasibility.yaml  # only if its dataset is absent
+```
 
-`manifest.json` (config, seed, versions, file hashes, counts, per-report fate, status) · `summary.txt` · `scenario/` (net, routes, signal program, `scenario.sumocfg`, SUMO logs, tripinfo) ·
-`agents/rsu_*.jsonl`, `agents/veh_*.jsonl` (agent-local views only) · `messages.jsonl` (send/deliver/reject trace) · `trace.jsonl` (deterministic per-step vehicle state; its SHA-256 is the reproducibility fingerprint) ·
-`global_snapshots.jsonl`, `global_snapshot_final.json` · `evaluator/truth.jsonl`, `evaluator/events.jsonl` (ground truth, **never** in agent logs).
-A finished example is in `examples/demo_n20_s42/` (incl. `gate.txt`, `report/*.png`).
-The live-federation option writes `online_federation.jsonl` and per-round checkpoints beside the ordinary SUMO logs.
+The full repository includes the v1 and v2 configs above. If you are using a trimmed local working copy and any of them are absent, restore them before running those older workflows. The 350v250 workflow itself uses its dedicated config files below.
 
-## Defaults are editable defaults, not findings
+## 5. Historical compact 1,500-sample experiment
 
-300 m arms, 150 m RSU zone, 100 m vehicle radius, 1 s step, N=20, seed 42, 600 s, congestion rule `queue/zone < 0.10 free, < 0.35 moderate, else heavy`, horizon 30 s, history 10 steps, ≥16 windows to be trainable.
-Straight/left/right all use one lane per arm (left/right turns share the lane).
-`agents.signal_broadcast` defaults to `false`: vehicles read the signal state only within 100 m and never see the timer (original behaviour).
+This is an earlier small-budget reference. Full accounting of vehicles, observations, rounds and windows is in [docs/COMPACT_1500.md](docs/COMPACT_1500.md). These commands require the matching compact dataset and configs.
 
-## Deliberate limits and things to know
+```bash
+python -m trafma collect  --config configs/data_compact_1500.yaml
+python -m trafma train    --method central --config configs/learning_compact_1500.yaml
+python -m trafma fedavg   --hierarchical   --config configs/learning_compact_1500.yaml
+python -m trafma baseline --config configs/learning_compact_1500.yaml
+```
 
-* **Message schema is 1.1** (adds the RSU fields above and `signal_remaining_s` on vehicle reports; the validator checks the major version only, so 1.0 logs stay readable). Sensor additions never change traffic: the trace hash is identical with and without them.
-* **Sensors are noise-free.** Inside its zone an RSU reads exactly what the evaluator computes (the clean baseline shows RSU = truth). Falsification/poisoning belongs to Phase 3 hooks.
-* **No separate signal agent.** The proposal's "traffic-signal agent" is folded into each RSU (it reports its road's signal state). Say if you want a fifth agent that owns the controller.
-* **Vehicles inside the junction box** belong to no RSU zone (they are in `in_junction` scope and only report themselves).
-* `agents.v2i_range_m` defaults to 400 m (covers the whole network), so no range drops happen unless you lower it.
-* `heavy` (380 veh) and `asymmetric` (260 veh) in `configs/data.yaml` are intentionally over-saturated: many vehicles are still queued at 900 s and are reported as unfinished, never as "completed".
-* GUI mode was verified to launch, run and close TraCI cleanly under a virtual display and the overlay renders; I could not click through it interactively.
-* The first TraCI connect prints `Retrying in 1 seconds` — normal.
+| Item | Value |
+|---|---|
+| Simulation | 4 scenarios (60, 220, 380, 260 vehicles), 900 s, 16 runs, 3,680 vehicles scheduled |
+| Training / validation / test windows | 1500 / 300 / 300 |
+| Central GRU | 104 epochs (minimum 50, early stopped, best at 89) |
+| Hierarchical FL | 20 clients x 75 windows, 100 rounds, 5 local epochs |
 
-See `docs/ARCHITECTURE_AS_BUILT.md` for the message schema, scope rules, label contract and Phase 2 hand-off points, and `docs/STATUS.md` for status and decisions. `docs/ARCHITECTURE.md` is the original plan's architecture (it still says "camera" where this repo says RSU).
+| Method | Test macro-F1 | Test queue MAE (m) |
+|---|---:|---:|
+| Central GRU | 0.772 | 20.6 |
+| Signal-aware Ridge (matched rows) | 0.562 | 27.1 |
+| Hierarchical FedAvg | 0.545 | 36.7 |
+
+These are single-seed results on 300 test windows: descriptive, not a final benchmark.
+
+## 6. Previous 350-client, 20-window compact comparison (2026-11-05)
+
+The latest compact comparison uses **350 vehicle clients with 20 windows each** (7,000 vehicle windows total), plus a four-RSU self-update ablation. The phrase “7,000 examples per client” would be inaccurate: 7,000 is the aggregate vehicle-window budget. In the RSU self-update-on run, each of the four RSUs contributes 1,750 sensor windows, adding 7,000 RSU windows.
+
+All four model runs used the same held-out cohort of 14,000 windows (7,000 vehicle and 7,000 RSU) for validation and test. The central run trained on 7,000 windows of each type. FL configurations used 100 rounds and five local epochs. Those runs and their package have since been removed from the current working tree; the historical scores below are retained from their saved report and status record.
+
+| Method | Train windows | Test macro-F1 | Test balanced accuracy | Test queue MAE (m) | Test queue RMSE (m) |
+|---|---:|---:|---:|---:|---:|
+| Central GRU | 14,000 | 0.8357 | 0.8292 | 14.905 | 24.578 |
+| Flat FedAvg, vehicle only | 7,000 | 0.2669 | 0.2991 | 57.391 | 64.154 |
+| Hierarchical FedAvg, RSU self-update off | 7,000 | 0.2524 | 0.2843 | 57.782 | 64.718 |
+| Hierarchical FedAvg, RSU self-update on | 14,000 | 0.7078 | 0.6925 | 27.352 | 42.185 |
+
+RSU self-updates strongly affect the result: in the self-update-on run, test macro-F1 / queue MAE are 0.8880 / 6.995 m for RSU rows and 0.5282 / 47.709 m for vehicle rows. The aggregate score therefore hides a substantial gap between sensor types. Flat and hierarchical FedAvg with RSU self-updates off are nearly tied, consistent with the same updates being averaged once; hierarchy alone is not an accuracy gain here.
+
+These are **one-seed descriptive results**, with overlapping one-second windows from four held-out SUMO runs; they are not independent-window confidence estimates or a multi-seed benchmark. The RSU-on comparison also doubles the FL training-window budget relative to the vehicle-only FL runs, so it does not isolate the effect of hierarchy or RSU participation from added training data. This is the earlier 20-window baseline; its old run folders and matched report are no longer in the current `runs/` folder. The historical metrics are retained here and in `Explain Project Implementation.md`; the new 350v250 results follow.
+
+## 7. Current 350v250 comparison and repeatable demo
+
+The current comparison uses 350 real vehicle-trajectory clients with up to 250 distinct windows each. A separate feasibility dataset supports the longer trajectories. Its train split had 361 clients eligible for 250 windows; 350 were selected. No client reached 1,000 windows. Each of the four RSUs had 1,761 eligible sensor windows, and the self-update-on run uses up to 1,750 per RSU.
+
+| Method | Vehicle windows | RSU windows | Total train windows | Test macro-F1 | Test queue MAE (m) |
+|---|---:|---:|---:|---:|---:|
+| Central GRU | 87,500 | 7,000 | 94,500 | 0.8733 | 9.281 |
+| Flat FedAvg | 87,500 | 0 | 87,500 | 0.6784 | 38.241 |
+| Hierarchical FedAvg, RSU self-update off | 87,500 | 0 | 87,500 | 0.6781 | 38.277 |
+| Hierarchical FedAvg, RSU self-update on | 87,500 | 7,000 | 94,500 | 0.8344 | 15.113 |
+
+Each run evaluates 7,000 vehicle and 7,000 RSU test windows. The four methods share the same held-out identities within this new comparison. The previous 20-window comparison used a different dataset split and seed, so these results do not isolate the effect of increasing the window cap. The new scores are one-seed descriptive results on overlapping windows.
+
+To run all four methods with visible terminal progress, separate output folders, saved config snapshots and one report containing only these runs, use the PowerShell runner:
+
+```powershell
+.\scripts\run_phase2_350v250.ps1
+```
+
+The script requires the existing `data/phase2_350clients_1000windows_feasibility/` dataset and stops if it is missing. It keeps the existing parent run ID and creates a timestamped repeat folder under `runs/phase2_350v250_20261105_223954/repeats/`. That child contains `central/`, `flat/`, `hierarchical_rsu_off/`, `hierarchical_rsu_on/`, `configs/` and `report/`. It does not collect or overwrite dataset files. Use `-Device cpu` to force CPU central training, `-Device auto` to select CUDA when available, or leave the default `cuda` for the tested RTX 4050 environment.
+
+The individual commands are available when you want a standalone method run, but their source configs use separate default output roots. Use the timestamped runner above when all four outputs and config snapshots must stay under the existing `phase2_350v250_20261105_223954` ID.
+
+```powershell
+python -m trafma train --method central --config configs/learning_350v250_central.yaml --device cuda
+python -m trafma fedavg --config configs/learning_350v250_flat.yaml --threads 0
+python -m trafma fedavg --hierarchical --config configs/learning_350v250_hierarchical.yaml --rsu-self-update false --threads 0
+python -m trafma fedavg --hierarchical --config configs/learning_350v250_hierarchical.yaml --rsu-self-update true --threads 0
+```
+
+Save the four paths printed by those commands and pass only those paths to `python -m trafma run-report --experiment <run-dir> --experiment <run-dir> --output <new-report-dir>`. The canonical completed run and report in the current workspace are under `runs/phase2_350v250_20261105_223954/`. Generated dataset/run outputs are intentionally not committed; the runner reproduces them from the configs.
+
+## 8. Training: epochs, CPU and GPU
+
+```bash
+python -m trafma train --method central --config configs/learning_350v250_central.yaml --device cuda
+python -m trafma train --method central --config configs/learning_350v250_central.yaml --device cpu
+python -m trafma fedavg --config configs/learning_350v250_flat.yaml --threads 0
+python -m trafma fedavg --hierarchical --config configs/learning_350v250_hierarchical.yaml --rsu-self-update false --threads 0
+python -m trafma fedavg --hierarchical --config configs/learning_350v250_hierarchical.yaml --rsu-self-update true --threads 0
+```
+
+- The 350v250 central config allows up to 150 epochs, sets `min_epochs: 1`, and uses early-stopping patience 15. The completed run stopped after 26 epochs and retained the best validation checkpoint.
+- `--device auto|cpu|cuda`: auto uses a GPU when PyTorch can see one.
+- `--threads N`: CPU threads; 0 selects all logical cores. FedAvg client training is CPU multi-threaded in this implementation.
+- CUDA was exercised for the completed central 350v250 run on an RTX 4050. That timing does not promise a speedup on other hardware.
+
+Details: [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md).
+
+## 9. Command reference
+
+```bash
+python -m trafma simulate --vehicles 20 --seed 42 --run-id <unique-id> --output-dir runs/<demo-folder> [--gui]
+python -m trafma gate --run <simulation-run-folder> --reproduce --pytest
+python -m trafma report --run <simulation-run-folder>
+python -m trafma replay --run <simulation-run-folder> --every 10
+python -m trafma inspect --run <simulation-run-folder> --vehicle veh_0005
+python -m trafma features-audit --dataset data/phase2_350clients_1000windows_feasibility
+python -m trafma baseline --config configs/learning_350v250_central.yaml
+python -m trafma train --method central --config configs/learning_350v250_central.yaml --device cuda
+python -m trafma train --method local --client <eligible-client-id> --config configs/learning_350v250_central.yaml
+python -m trafma fedavg --config configs/learning_350v250_flat.yaml --threads 0
+python -m trafma fedavg --iid-control --config configs/learning_350v250_flat.yaml --threads 0
+python -m trafma fedavg --transient-participation --config configs/learning_350v250_flat.yaml --threads 0
+python -m trafma fedavg --hierarchical --config configs/learning_350v250_hierarchical.yaml --rsu-self-update false --threads 0
+python -m trafma fedavg --hierarchical --config configs/learning_350v250_hierarchical.yaml --rsu-self-update true --threads 0
+python -m trafma run-report --experiment <run-dir> --experiment <run-dir> --output <new-report-dir>
+python -m trafma sample-budget --dataset data/phase2_350clients_1000windows_feasibility --experiment <run-dir>
+python -m trafma phase2-report --help
+python -m trafma phase2-stats  --help
+python -m trafma phase2-local-eval --help
+```
+
+The full project includes the legacy phase1, learning and v2 configs used by the command examples. If one is missing from a trimmed working copy, restore it from the repository before running that workflow. Any simulation config value can be overridden, for example `--set agents.rsu_zone_m=120 --set comms.v2i.loss_prob=0.1`. In `--gui`, vehicles are green inside the RSU zone, red when halted, yellow when approaching and grey in the junction.
+
+## 10. Run artefacts
+
+Each simulation run folder holds:
+
+| File or folder | Contents |
+|---|---|
+| `manifest.json` | Config, seed, versions, file hashes, counts, status |
+| `scenario/` | Network, routes, signal program, SUMO logs, `topology.json` (includes `drive_side`) |
+| `agents/rsu_*.jsonl`, `agents/veh_*.jsonl` | Agent-local views only |
+| `messages.jsonl` | Send, deliver and reject trace |
+| `trace.jsonl` | Per-step vehicle state; its SHA-256 is the reproducibility fingerprint |
+| `evaluator/` | Ground truth, never visible to agents or models |
+| `labels.jsonl`, `windows.jsonl` | Dataset runs only: label and window index |
+
+The saved feasibility-dataset training run `data/phase2_350clients_1000windows_feasibility/train/heavy_long_hold_s6101/` can be replayed without SUMO. New GUI simulations need a new run ID; keep them beneath `runs/phase2_350v250_20261105_223954/` to retain the existing top-level experiment ID.
+
+## 11. Defaults and limits
+
+- 300 m arms, one lane per direction, 150 m RSU zone, 1 s step, signal 25 s green, 3 s yellow, 2 s all-red (120 s cycle).
+- Congestion rule: queue / zone below 0.10 is free, below 0.35 moderate, otherwise heavy. History 10 steps, horizon 30 s.
+- Sensors are noise-free. Attacks, trust and the dashboard belong to Phase 3.
+- The `heavy` and `asymmetric` scenarios are over-saturated on purpose: vehicles still queued at 900 s are reported as unfinished.
+- GUI mode was verified under a virtual display only.
+
+## 12. Documentation map
+
+| Document | Purpose |
+|---|---|
+| [docs/ARCHITECTURE_AS_BUILT.md](docs/ARCHITECTURE_AS_BUILT.md) | What the code does today |
+| [docs/COMPACT_1500.md](docs/COMPACT_1500.md) | Sample accounting for the 1,500-window experiment |
+| [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md) | Epochs, early stopping, CPU, GPU, threads |
+| [docs/STATUS.md](docs/STATUS.md) | Evidence ledger |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Design decisions |
+| [docs/DATA_CONTRACTS.md](docs/DATA_CONTRACTS.md) | Message, label and feature contracts |
+| [AGENTS.md](AGENTS.md) | Rules for coding agents |
+
+`docs/ARCHITECTURE.md` is the original plan and still says "camera" where the code says RSU.

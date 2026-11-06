@@ -1,6 +1,35 @@
 # Status and decisions
 
-Updated: 2026-11-01. "Verified" is backed by a run/test/artifact; outstanding Phase 2 items are explicitly listed.
+Updated: 2026-11-06. "Verified" is backed by a run/test/artifact; outstanding Phase 2 items are explicitly listed.
+
+## Completed 350-vehicle / RSU-stratified compact comparison (2026-11-05)
+
+- Four runs completed: central GRU (`runs/phase2_compact_350_central_7000each/central_gru_phase2_compact_1500_seed20261031_20261104T183425Z/`, 14,000 train windows, 83 epochs, 3.3 min); flat FedAvg (`runs/phase2_compact_350_flat_vehicle_only_7000/flat_fedavg_phase2_compact_1500_seed20261031_20261104T191151Z/`, 350 vehicle clients x 20 windows = 7,000, 100 rounds, 29.2 min); hierarchical RSU self-update off (`runs/phase2_compact_350_vehicle_only_7000/hierarchical_fedavg_phase2_compact_1500_seed20261031_20261104T183804Z/`, 350 vehicle clients x 20 windows = 7,000, 100 rounds, 32.9 min); hierarchical RSU self-update on (`runs/phase2_compact_350_vehicle_rsu_7000each/hierarchical_fedavg_phase2_compact_1500_seed20261031_20261104T194135Z/`, 350 vehicle clients x 20 plus four RSU groups x 1,750 = 14,000, 100 rounds, 40.3 min).
+- Every run evaluated the same 14,000 held-out rows: 7,000 vehicle and 7,000 RSU windows for validation and test. Per-type sample counts are recorded in manifests.
+- Combined report: `runs/phase2_compact_350_7000_report/report.md` and `report.html`. Matched Ridge / central / flat / hierarchical-off / hierarchical-on test macro-F1: 0.5335 / 0.8357 / 0.2669 / 0.2524 / 0.7078. Queue MAE (m): 29.905 / 14.905 / 57.391 / 57.782 / 27.352. These are descriptive results for one training seed with overlapping windows, not run-level confidence estimates.
+- Dataset capacity supports the sampling targets: train 205,929 vehicle / 27,552 RSU windows; validation 106,786 / 13,776; test 111,067 / 13,776. The flat fixed-budget selection check was tightened to require each selected vehicle to meet the 20-window cap. RSU budget validation now initializes the eligibility threshold before validating the RSU group cap.
+- The four experiments and matched report are complete. The test suite was not rerun for these sampler/configuration changes.
+- A separate latest-run-only report, `runs/phase2_compact_350_7000_report_latest_only/report.md` and `report.html`, uses only the four current model artifacts and excludes the earlier baseline artifact used in the first combined report.
+- The latest-run-only report now includes overall/type-stratified performance graphs, row-normalized confusion matrices on a shared 0–100% scale, validation curves and per-run queue scatter plots. Individual HTML/Markdown reports and their plot assets are in `runs/phase2_compact_350_7000_report_latest_only/individual/`.
+- Future run reports use `python -m trafma run-report --experiment <saved-run-folder> --output <new-report-folder>`; repeat `--experiment` to create a matched comparison plus one individual report per run. Report generation verifies matching held-out row identities and records input hashes.
+- The final RSU self-update-on run has a Git-ready package at `artifacts/phase2_compact_350_hfl_rsu_on_7000each/`: its full run artifacts, 14,000 selected feature windows for each train/validation/test split cohort (7,000 per type), config, and individual report/graphs. The full raw dataset is intentionally not copied; selected feature tensors and their provenance hashes are included. Package size is below 50 MiB.
+
+## 350-client / 1,000-window feasibility pilot (2026-11-05)
+
+- User requested 350 real vehicle-trajectory clients with 1,000 distinct windows each and 1,750 windows from each of four RSU learners. The existing compact dataset had 1,764 eligible vehicle clients but no client above 347 windows.
+- An additive feasibility dataset was collected at `data/phase2_350clients_1000windows_feasibility/` using `configs/data_350clients_1000windows_feasibility.yaml`: three separate 1,800-second, 500-vehicle runs (train/validation/test), with departures scheduled during the first 600 seconds to sustain congestion. Each completed with 500 arrivals, zero collisions and zero teleports; whole-run split and label integrity checks passed.
+- The pilot train split has 499 trainable vehicle trajectories, maximum 412 windows; zero clients reach 1,000. 361 clients reach 250 windows, enough for a fixed 350-client x 250-window comparison. Each RSU has 1,761 windows, sufficient for the requested 1,750 cap.
+- Therefore the requested 350 x 1,000 training budget is not available from current one-trajectory-per-client data. At the time of this feasibility audit, no central/flat/hierarchical model run had started. Proceeding requires either a different simulation/client design or a lower per-client window budget; do not duplicate/relabel windows to fill the cap.
+- Terminal progress bars for central GRU epochs and flat/hierarchical FedAvg rounds were added in `trafma/progress.py`; tests have not been run for that code change.
+- An initial exploratory CUDA central-GRU attempt on the feasibility dataset was intentionally interrupted at epoch 28/150 before artifacts were written. A complete four-method comparison subsequently finished under `runs/phase2_350v250_20261105_223954/`: central GRU (94,500 windows, CUDA, 26 epochs, 4.5 min), flat FedAvg (87,500, 100 rounds, 136.3 min), hierarchical FedAvg with RSU self-update off (87,500, 100 rounds, 131.6 min), and hierarchical FedAvg with RSU self-update on (94,500, 100 rounds, 148.6 min). Each FL client uses five local epochs; FedAvg is CPU multi-threaded. The matched report is `runs/phase2_350v250_20261105_223954/report/report.md` and `.html`. Test macro-F1 was 0.8733 / 0.6784 / 0.6781 / 0.8344 respectively; queue MAE was 9.281 / 38.241 / 38.277 / 15.113 m. These are one-seed descriptive results on overlapping windows and use a different dataset split from the prior 20-window comparison, so they do not isolate the window-cap effect. The exact run configs are snapshotted in the run folder.
+
+## Expanded compact 100-vehicle experiment and RSU self-update ablation
+
+- `configs/learning_compact_100vehicles.yaml`: 100 vehicle clients plus four RSU sensor learners; 75 windows each, 7,800 windows total, 100 rounds, five local epochs. Central GRU uses the same 7,800-window budget.
+- Separate RSU self-update-off run: `runs/phase2_compact_100clients_rsu_off/hierarchical_fedavg_phase2_compact_1500_seed20261031_20261104T103945Z/`, selected 100 vehicle clients and 7,500 windows; four RSUs aggregate vehicle updates but contribute no sensor-only model updates. Config: `configs/learning_compact_100vehicles_rsu_off.yaml`.
+- Combined saved-artifact comparison report: `runs/phase2_compact_100clients/report_100clients_rsu_ablation/`. It includes baseline, central GRU, HFL self-update on and off, all scored on the same 300 test rows.
+- Descriptive test results: central GRU MAE 18.514 m / RMSE 28.281 m / macro-F1 0.7637 / balanced accuracy 0.7464; HFL self-update on 61.479 m / 68.148 m / 0.3423 / 0.3609; HFL self-update off 69.576 m / 76.363 m / 0.2976 / 0.3382. One training seed and 300 overlapping held-out windows; these are not run-level confidence estimates.
+- The original 20-client/1,500-window compact config/report remains preserved. The dataset manifest lists 1,205 eligible vehicle clients with at least 75 windows (N 333, S 359, W 232, E 281).
 
 ## Where the project is
 
@@ -10,6 +39,28 @@ Updated: 2026-11-01. "Verified" is backed by a run/test/artifact; outstanding Ph
 - **P2.3 (features/model):** `trafma.features/1` and the two-head GRU are implemented. The full v1, v2_dev and v2 feature scans pass with the same schema hash.
 - **P2.4-P2.5 (federation):** flat FedAvg, four-group hierarchical FedAvg, persistent RSU sensor learners and synthetic IID control are implemented and have saved v2_dev runs. D4 is resolved below.
 - **P2.6-P2.7:** natural non-IID and transient offline participation experiments plus a saved-artifact Markdown/HTML report and plots are implemented. Per-client natural/IID distributions, paired run-level statistics, an optional live SUMO federation path, a repeatable Windows smoke-demo script, and exhaustive plus representative resumable local-only evaluators are implemented. Full-v2 learned-method evaluation and the paired report are complete; exhaustive population local evaluation remains optional and is not a Phase 2 completion gate.
+
+## Update 2026-11-04: left-hand traffic, split folders, 50-epoch GRU, compact 1,500-sample budget
+
+All items below are backed by saved artifacts and the test suite (177 tests passing on Linux, SUMO 1.28.0, CPU PyTorch).
+
+| Item | Evidence |
+|---|---|
+| Left-hand traffic by default (`network.drive_side`) | `tests/test_netgen.py` (lane side, RSU kerb, turn labels, compass layout); TraCI check of every vehicle at 1.6 m left of its road axis; `examples/demo_n20_s42` regenerated, gate PASS including reproducibility |
+| Right-hand mode equals the old implementation | 20 vehicles, seed 42, `drive_side=right` gives trace hash `e2c4145faae5...`, the hash recorded above |
+| Dataset split folders `data/<id>/{train,val,test}/<run>/` | `tests/test_dataset.py`; `phase2_compact_1500` generated, 0 split overlap, 0 collisions, 0 teleports, feature audit PASS with the same schema hash |
+| Central GRU with at least 50 epochs and early stopping | `runs/phase2_compact/central_gru_*`: 104 epochs, best epoch 89, minimum 50 enforced |
+| CPU threads and `device auto` | Implemented and recorded in manifests. Multi-thread speed-up not measured (1-core sandbox). **GPU path not tested** |
+| Compact 1,500-sample experiment | `docs/COMPACT_1500.md`, `data/phase2_compact_1500/sample_budget.md`, `runs/phase2_compact/` |
+
+Compact results (300 held-out test windows, one training seed, descriptive only): central GRU macro-F1 0.772 and queue MAE 20.6 m; matched signal-aware Ridge 0.562 and 27.1 m; hierarchical FedAvg (100 rounds x 5 local epochs, 20 clients x 75 windows) 0.545 and 36.7 m. Hierarchical FedAvg did not beat the pooled model or the Ridge baseline on this budget. A 30-round setting was under-trained (validation macro-F1 0.235); 100 rounds was chosen on validation results only.
+
+Known caveats of this update:
+
+- The committed `phase2_v1`, `phase2_v2_dev` and `phase2_v2` manifests and all earlier `runs/phase2/` results are right-hand and 2-epoch-central results. They are not comparable with the left-hand compact results and were not regenerated.
+- The long crossing turn is now the right turn, so heavy-load vehicle counts and trip times differ slightly from right-hand runs.
+- The default `epochs` in `configs/learning.yaml` changed from 2 to 150 (minimum 50). Earlier central/local GRU numbers in this file used 2 epochs.
+- Vehicle clients in the fixed HFL budget need at least 84 consecutive in-scope steps, so they come mostly from congested runs.
 
 ## Previously verified implementation checks
 

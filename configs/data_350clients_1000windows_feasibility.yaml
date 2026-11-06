@@ -1,0 +1,21 @@
+# Feasibility pilot for 350 real vehicle-trajectory clients with >=1,000 distinct
+# windows each, plus the established 1,750-window cap for each RSU learner.
+# Kept separate from all existing datasets and reports.
+dataset_id: phase2_350clients_1000windows_feasibility
+output_dir: data
+jobs: 1
+base:
+  run:
+    duration_s: 1800
+    wall_timeout_s: 1800
+  demand:
+    # Schedule the 500 vehicles during the first 600 s to test long trajectories
+    # under sustained congestion; this is a feasibility stress pilot, not the
+    # standard compact demand profile.
+    depart_tail_s: 1200
+scenarios:
+  - {name: heavy_long_hold, vehicles: 500, profile: balanced}
+splits:
+  train: [6101]
+  val: [6201]
+  test: [6301]

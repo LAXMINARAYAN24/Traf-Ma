@@ -10,6 +10,14 @@ from .config import Config, ConfigError, load_config, parse_set_overrides
 
 
 def _cfg_from_args(a) -> "Config":
+    """Handles  cfg from args for the values provided.
+
+    Args:
+        a: Value used by this function.
+
+    Returns:
+        The result produced by this function.
+    """
     ov = parse_set_overrides(getattr(a, "set", []))
     run = ov.setdefault("run", {})
     for flag, key in (("vehicles", "vehicles"), ("seed", "seed"), ("duration", "duration_s"),
@@ -27,6 +35,14 @@ def _cfg_from_args(a) -> "Config":
 
 
 def main(argv=None) -> int:
+    """Handles main for the values provided.
+
+    Args:
+        argv: Value used by this function.
+
+    Returns:
+        The result produced by this function.
+    """
     p = argparse.ArgumentParser(prog="trafma", description="TRAF-MA SUMO simulation layer")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -34,6 +50,14 @@ def main(argv=None) -> int:
     d.add_argument("--save", help="write the environment report to this JSON path")
 
     def common(sp):
+        """Handles common for the values provided.
+
+        Args:
+            sp: Value used by this function.
+
+        Returns:
+            None.
+        """
         sp.add_argument("--config", help="YAML config (default: built-in defaults)")
         sp.add_argument("--set", action="append", default=[], metavar="KEY=VAL",
                         help="override any config value, e.g. agents.rsu_zone_m=120")
@@ -78,6 +102,9 @@ def main(argv=None) -> int:
     tr.add_argument("--dataset", help="override the dataset directory in the learning config")
     tr.add_argument("--client", help="eligible training client ID; required for --method local")
     tr.add_argument("--training-seed", type=int, help="override the model/shuffle seed")
+    tr.add_argument("--device", choices=["auto", "cpu", "cuda"],
+                    help="override training.device (auto = CUDA GPU if PyTorch sees one, else CPU)")
+    tr.add_argument("--threads", type=int, help="CPU threads for training (0 = every core); overrides training.num_threads")
 
     fl = sub.add_parser("fedavg", help="run flat or hierarchical FedAvg trajectory replay")
     fl.add_argument("--config", default="configs/learning.yaml")
@@ -89,8 +116,14 @@ def main(argv=None) -> int:
     fl.add_argument("--transient-participation", action="store_true",
                     help="replay deterministic vehicle arrivals/departures across rounds")
     fl.add_argument("--training-seed", type=int, help="override model/client-order seeds")
+    fl.add_argument("--threads", type=int, help="CPU threads for client training (0 = every core)")
     fl.add_argument("--rsu-self-update", choices=["true", "false"],
                     help="override federation.rsu_self_update for hierarchical ablations")
+
+    sb = sub.add_parser("sample-budget", help="account for vehicles, observations, windows and rounds behind a training budget")
+    sb.add_argument("--dataset", required=True, help="dataset directory containing dataset_manifest.json")
+    sb.add_argument("--experiment", action="append", default=[], help="saved train/fedavg run directory (repeatable)")
+    sb.add_argument("--output", help="Markdown path (default: <dataset>/sample_budget.md; a .json twin is written too)")
 
     pr = sub.add_parser("phase2-report", help="generate a report from saved Phase 2 experiment artifacts")
     pr.add_argument("--dataset", required=True, help="dataset directory containing dataset_manifest.json")
@@ -99,6 +132,14 @@ def main(argv=None) -> int:
                     help="saved learning experiment directory; repeat for each method")
     pr.add_argument("--output", help="new report directory (must not already exist)")
     pr.add_argument("--statistics", help="paired phase2-stats artifact directory to include")
+
+    er = sub.add_parser("run-report", help="make graph-rich HTML/Markdown reports for saved experiment run(s)")
+    er.add_argument("--experiment", action="append", required=True,
+                    help="saved experiment run directory; repeat to make a matched comparison")
+    er.add_argument("--output", required=True,
+                    help="report output directory; contains comparison and individual run reports")
+    er.add_argument("--overwrite", action="store_true",
+                    help="update an existing report directory, preserving its prior report.md/html copies")
 
     ps = sub.add_parser("phase2-stats", help="run paired run-level bootstrap analysis on saved predictions")
     ps.add_argument("--baseline", required=True, help="saved full-dataset baseline experiment directory")
@@ -218,7 +259,8 @@ def main(argv=None) -> int:
             from .training import TrainingError, run_gru_training
             try:
                 output = run_gru_training(
-                    a.config, a.method, a.dataset, a.client, training_seed=a.training_seed
+                    a.config, a.method, a.dataset, a.client, training_seed=a.training_seed,
+                    device_override=a.device, num_threads_override=a.threads,
                 )
             except (BaselineError, TrainingError) as e:
                 print(f"training error: {e}", file=sys.stderr)
@@ -233,7 +275,7 @@ def main(argv=None) -> int:
                 output = run_fedavg_training(
                     a.config, a.dataset, hierarchy=a.hierarchical, iid_control=a.iid_control,
                     transient_participation=a.transient_participation,
-                    training_seed=a.training_seed,
+                    training_seed=a.training_seed, num_threads_override=a.threads,
                     rsu_self_update_override=(
                         None if a.rsu_self_update is None else a.rsu_self_update == "true"
                     ),
@@ -242,6 +284,15 @@ def main(argv=None) -> int:
                 print(f"FedAvg error: {e}", file=sys.stderr)
                 return 2
             print(f"FedAvg artifacts: {output}")
+            return 0
+        if a.cmd == "sample-budget":
+            from .sample_budget import SampleBudgetError, run_sample_budget
+            try:
+                out = run_sample_budget(a.dataset, a.experiment, a.output)
+            except (SampleBudgetError, KeyError) as e:
+                print(f"sample-budget error: {e}", file=sys.stderr)
+                return 2
+            print(f"sample budget: {out}")
             return 0
         if a.cmd == "phase2-report":
             from .phase2_report import ReportError, run_phase2_report
@@ -253,6 +304,15 @@ def main(argv=None) -> int:
                 print(f"Phase 2 report error: {e}", file=sys.stderr)
                 return 2
             print(f"Phase 2 report artifacts: {output}")
+            return 0
+        if a.cmd == "run-report":
+            from .experiment_report import ExperimentReportError, generate_experiment_reports
+            try:
+                output = generate_experiment_reports(a.experiment, a.output, overwrite=a.overwrite)
+            except ExperimentReportError as e:
+                print(f"run report error: {e}", file=sys.stderr)
+                return 2
+            print(f"Run report artifacts: {output}")
             return 0
         if a.cmd == "phase2-stats":
             from .phase2_statistics import StatisticsError, run_paired_statistics
