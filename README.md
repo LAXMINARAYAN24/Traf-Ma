@@ -46,7 +46,7 @@ pip install -r requirements.txt
 python -m trafma doctor
 ```
 
-The following sequence covers the main project milestones. Each collection config has its own `dataset_id`, so the v1, v2-dev, full-v2 and 350v250 datasets are separate. Collect a dataset once, then reuse that same split for its matched model comparisons; use a new `dataset_id` when creating independent data.
+The following sequence covers the project milestones available on this branch. The retained v1 and 350v250 collection configs use separate dataset IDs. Collect each dataset once, then reuse its split for matched model comparisons.
 
 ```bash
 python -m trafma doctor
@@ -56,9 +56,6 @@ python -m trafma gate --run runs/<run-id> --reproduce --pytest
 python -m trafma report --run runs/<run-id>
 python -m trafma replay --run runs/<run-id> --every 10
 python -m trafma collect --config configs/data.yaml           # v1: 24 runs
-python -m trafma collect --config configs/data_v2_dev.yaml    # v2 development: 48 runs
-python -m trafma collect --config configs/data_v2.yaml --resume  # full v2: 160 runs
-python -m trafma features-audit --dataset data/phase2_v2_dev
 python -m trafma baseline --config configs/learning.yaml
 python -m trafma train --method central --config configs/learning.yaml
 python -m trafma train --method local --client asymmetric_ew_s100/rsu_E --config configs/learning.yaml
@@ -159,7 +156,7 @@ python -m trafma collect --config configs/data.yaml            # legacy v1; writ
 python -m trafma collect --config configs/data_350clients_1000windows_feasibility.yaml  # only if its dataset is absent
 ```
 
-The full repository includes the v1 and v2 configs above. If you are using a trimmed local working copy and any of them are absent, restore them before running those older workflows. The 350v250 workflow itself uses its dedicated config files below.
+This branch keeps the v1 and dedicated 350v250 collection configs. The v2 configs and saved v1/v2 manifests were removed from this branch; the 350v250 workflow uses the dedicated configs below.
 
 ## 5. Historical compact 1,500-sample experiment
 
